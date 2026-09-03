@@ -5,7 +5,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from .app_state import AppState, load_state, save_state
-from .gui import MainWindow
+from .gui_v04 import MainWindow
 from .logging_utils import get_logger
 
 
