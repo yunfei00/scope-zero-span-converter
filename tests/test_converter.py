@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from scope_zero_span_converter.config import AppConfig
 from scope_zero_span_converter.converter import convert
@@ -36,6 +37,7 @@ def test_200mhz_cw_converts_to_stable_zerospan(tmp_path):
     result = convert(waveform_path, metadata_path, config)
 
     # 0.2 Vpeak -> 0.1414 Vrms -> 0.4 mW -> about -3.98 dBm.
-    middle = result.amplitude_dbm[len(result.amplitude_dbm) // 4 : -len(result.amplitude_dbm) // 4]
+    quarter = len(result.amplitude_dbm) // 4
+    middle = result.amplitude_dbm[quarter:-quarter]
     assert np.median(middle) == pytest.approx(-3.9794, abs=0.5)
     assert np.std(middle) < 0.5
