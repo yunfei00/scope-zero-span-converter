@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scope-zero-span-converter"
-version = "0.2.0"
+version = "0.3.0"
 description = "将示波器时域波形离线转换为频谱仪 Zero Span 功率-时间曲线"
 readme = "README.md"
 requires-python = ">=3.11"
