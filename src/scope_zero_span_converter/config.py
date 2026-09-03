@@ -39,6 +39,19 @@ class ComparisonConfig:
 
 
 @dataclass
+class WaveformResearchConfig:
+    enabled: bool = True
+    extraction_mode: str = "manual"
+    selection_start_s: float | None = None
+    selection_end_s: float | None = None
+    auto_update_conversion: bool = True
+    time_unit: str = "us"
+    min_points: int = 32
+    save_region_metadata: bool = True
+    reset_saved_time_to_zero: bool = False
+
+
+@dataclass
 class BatchConfig:
     source_directory: str = ""
     output_directory: str = "batch_output"
@@ -72,6 +85,7 @@ class AppConfig:
     signal: SignalConfig = field(default_factory=SignalConfig)
     conversion: ConversionConfig = field(default_factory=ConversionConfig)
     comparison: ComparisonConfig = field(default_factory=ComparisonConfig)
+    waveform_research: WaveformResearchConfig = field(default_factory=WaveformResearchConfig)
     batch: BatchConfig = field(default_factory=BatchConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -95,6 +109,16 @@ class AppConfig:
             raise ValueError("impedance_ohm 必须 > 0")
         if self.scope.analog_bandwidth_hz <= 0:
             raise ValueError("analog_bandwidth_hz 必须 > 0")
+        if self.waveform_research.extraction_mode != "manual":
+            raise ValueError("当前版本 waveform_research.extraction_mode 只支持 manual")
+        if self.waveform_research.time_unit not in {"ns", "us", "ms", "s"}:
+            raise ValueError("waveform_research.time_unit 必须是 ns/us/ms/s")
+        if self.waveform_research.min_points < 8:
+            raise ValueError("waveform_research.min_points 不能小于 8")
+        start = self.waveform_research.selection_start_s
+        end = self.waveform_research.selection_end_s
+        if start is not None and end is not None and end <= start:
+            raise ValueError("研究区域结束时间必须大于开始时间")
         if not self.batch.waveform_filename.strip():
             raise ValueError("batch.waveform_filename 不能为空")
         if not self.batch.metadata_filename.strip():
@@ -110,6 +134,7 @@ def config_from_dict(raw: dict[str, Any]) -> AppConfig:
         signal=SignalConfig(**raw.get("signal", {})),
         conversion=ConversionConfig(**raw.get("conversion", {})),
         comparison=ComparisonConfig(**raw.get("comparison", {})),
+        waveform_research=WaveformResearchConfig(**raw.get("waveform_research", {})),
         batch=BatchConfig(**raw.get("batch", {})),
         scope=ScopeConfig(**raw.get("scope", {})),
         output=OutputConfig(**raw.get("output", {})),
