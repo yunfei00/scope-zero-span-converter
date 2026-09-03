@@ -24,6 +24,17 @@
     "enabled": true,
     "save_aligned_csv": true
   },
+  "waveform_research": {
+    "enabled": true,
+    "extraction_mode": "manual",
+    "selection_start_s": null,
+    "selection_end_s": null,
+    "auto_update_conversion": true,
+    "time_unit": "us",
+    "min_points": 32,
+    "save_region_metadata": true,
+    "reset_saved_time_to_zero": false
+  },
   "batch": {
     "source_directory": "",
     "output_directory": "batch_output",
