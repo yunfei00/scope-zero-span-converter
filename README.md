@@ -26,6 +26,24 @@ time_s, amplitude_dbm
 
 最终结果是 **功率随时间变化**，不是普通 FFT 频谱。
 
+## 当前功能
+
+- PySide6 中文参数 GUI
+- 选择 `waveform.csv` 与 `metadata.json`
+- Center / Span / RBW / VBW 参数
+- 可选择是否优先使用 metadata 中的 FSW 参数
+- RMS Detector
+- Gaussian RBW Filter
+- VBW 开关
+- FSW Sweep Time / Points 时间轴重采样
+- 50 Ω 阻抗及 dB 校准
+- 示波器模拟带宽保护
+- JSON 配置保存与加载
+- Zero Span CSV 导出
+- 原始时域 + Zero Span 时域上下对比图
+- CLI 命令行模式
+- 合成 200 MHz CW 自动测试
+
 ## 输入
 
 默认输入：
@@ -68,12 +86,14 @@ time_s,amplitude_dbm,envelope_v_rms
 configs/default.json
 ```
 
-包含：
+配置包含：
 
+- 输入 waveform / metadata 路径
 - Center Frequency
 - Span（Zero Span 固定为 0）
 - RBW
 - VBW
+- 是否优先使用 metadata 参数
 - Detector
 - RBW Filter
 - 输入阻抗
@@ -87,16 +107,17 @@ configs/default.json
 ## 当前默认基线
 
 ```text
-Center   = 200 MHz
-Span     = 0 Hz
-RBW      = 10 MHz
-VBW      = 10 MHz
+Center    = 200 MHz
+Span      = 0 Hz
+RBW       = 10 MHz
+VBW       = 10 MHz
 Impedance = 50 Ω
-Detector = RMS
+Detector  = RMS
 RBW Filter = Gaussian
+Scope BW  = 350 MHz
 ```
 
-实际转换时优先读取 `metadata.json` 中的 FSW 实测参数；JSON 配置可以提供默认值或显式覆盖。
+默认勾选“优先使用 metadata 中的 FSW 参数”。如果取消勾选，则完全使用 GUI / JSON 中的 Center、RBW、VBW 参数。
 
 ## 安装
 
@@ -113,7 +134,30 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## 使用
+## GUI 使用
+
+安装完成后运行：
+
+```bash
+scope-zero-span-gui
+```
+
+或者：
+
+```bash
+python -m scope_zero_span_converter.gui
+```
+
+GUI 中可以：
+
+1. 选择 waveform CSV 与 metadata JSON；
+2. 修改整个转换过程参数；
+3. 保存为客户自己的 JSON 模板；
+4. 下次直接加载 JSON 恢复参数；
+5. 点击“开始转换”；
+6. 在同一界面查看原始时域波形和恢复后的 Zero Span 功率-时间曲线。
+
+## CLI 使用
 
 ```bash
 scope-zero-span-converter convert waveform.csv metadata.json
@@ -123,6 +167,12 @@ scope-zero-span-converter convert waveform.csv metadata.json
 
 ```bash
 scope-zero-span-converter convert waveform.csv metadata.json --config configs/default.json
+```
+
+生成一份新的默认配置：
+
+```bash
+scope-zero-span-converter init-config customer-config.json
 ```
 
 ## 重要说明
@@ -141,20 +191,23 @@ scope-zero-span-converter convert waveform.csv metadata.json --config configs/de
 
 ## 版本规划
 
-### v0.1
+### v0.1 当前基线
 
 - 转换核心模块化
 - JSON 配置加载/保存
 - CLI
-- 默认配置
+- PySide6 GUI
+- 上下时域预览
 - 基础算法测试
+- GitHub CI
 
 ### v0.2
 
-- PySide6 GUI
-- 参数编辑
-- JSON 配置加载/保存
-- 上下时域曲线预览
+- GUI 体验优化
+- 转换参数校验提示
+- 转换元数据记录
+- 客户配置模板管理
+- FSW 实测 CSV 对比
 
 ### v0.3
 
@@ -166,5 +219,5 @@ scope-zero-span-converter convert waveform.csv metadata.json --config configs/de
 
 - 客户正式版本
 - 稳定配置兼容
-- 转换元数据记录
-- 完整日志与用户说明
+- 完整日志
+- 用户说明书
