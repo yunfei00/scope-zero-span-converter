@@ -24,6 +24,17 @@
     "enabled": true,
     "save_aligned_csv": true
   },
+  "batch": {
+    "source_directory": "",
+    "output_directory": "batch_output",
+    "recursive": true,
+    "waveform_filename": "waveform.csv",
+    "metadata_filename": "metadata.json",
+    "fsw_reference_filename": "",
+    "continue_on_error": true,
+    "save_summary_csv": true,
+    "save_summary_json": true
+  },
   "scope": {
     "analog_bandwidth_hz": 350000000.0
   },
