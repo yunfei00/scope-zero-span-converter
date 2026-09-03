@@ -26,12 +26,14 @@ time_s, amplitude_dbm
 
 最终结果是 **功率随时间变化**，不是普通 FFT 频谱。
 
-## 当前功能
+## v0.2 当前功能
 
 - PySide6 中文参数 GUI
 - 选择 `waveform.csv` 与 `metadata.json`
+- 可选导入 FSW Zero Span 实测 CSV
 - Center / Span / RBW / VBW 参数
 - 可选择是否优先使用 metadata 中的 FSW 参数
+- GUI 显示 Center / RBW / VBW 的实际参数来源
 - RMS Detector
 - Gaussian RBW Filter
 - VBW 开关
@@ -39,8 +41,13 @@ time_s, amplitude_dbm
 - 50 Ω 阻抗及 dB 校准
 - 示波器模拟带宽保护
 - JSON 配置保存与加载
+- v0.1 JSON 配置向后兼容
 - Zero Span CSV 导出
 - 原始时域 + Zero Span 时域上下对比图
+- FSW 实测与恢复曲线叠加
+- MAE / RMSE / Bias / 最大误差 / 相关系数
+- 对齐后的 `comparison_to_fsw.csv`
+- 自动生成 `conversion_metadata.json`
 - Matplotlib 中文字体自动适配（Windows 优先 Microsoft YaHei）
 - CLI 命令行模式
 - 合成 200 MHz CW 自动测试
@@ -49,20 +56,36 @@ time_s, amplitude_dbm
 
 ## 输入
 
-默认输入：
+必选：
 
 ```text
 waveform.csv
 metadata.json
 ```
 
-标准波形格式：
+可选：
+
+```text
+FSW Zero Span 实测 CSV
+```
+
+标准示波器波形格式：
 
 ```csv
 time_s,voltage_v
 0.0,...
 ...
 ```
+
+FSW Zero Span 参考格式：
+
+```csv
+time_s,amplitude_dbm
+0.0,...
+...
+```
+
+也兼容 `level_dbm` / `power_dbm` 作为功率列名。
 
 ## 输出
 
@@ -71,7 +94,9 @@ time_s,voltage_v
 ```text
 output/
 ├─ zero_span_from_scope.csv
-└─ waveform_zero_span_compare.png
+├─ waveform_zero_span_compare.png
+├─ conversion_metadata.json
+└─ comparison_to_fsw.csv        # 提供 FSW 实测 CSV 时生成
 ```
 
 Zero Span CSV：
@@ -80,6 +105,33 @@ Zero Span CSV：
 time_s,amplitude_dbm,envelope_v_rms
 ...
 ```
+
+FSW 对比 CSV：
+
+```csv
+time_s,reconstructed_dbm,fsw_reference_dbm,error_db
+...
+```
+
+## conversion_metadata.json
+
+每次转换可自动保存完整转换记录，包括：
+
+- 软件版本
+- 转换时间
+- 输入文件路径
+- 实际 Center / RBW / VBW
+- 参数来自 metadata 还是 GUI/JSON
+- Detector / RBW Filter / VBW
+- 阻抗和校准值
+- 示波器采样率
+- 输入点数 / 输出点数
+- FSW Sweep Time / Trace Points
+- 是否执行 FSW 时间轴重采样
+- FSW 对比误差指标
+- 完整配置快照
+
+这样后续拿到某条结果时，可以追溯它到底是用什么参数生成的。
 
 ## JSON 配置
 
@@ -91,7 +143,8 @@ configs/default.json
 
 配置包含：
 
-- 输入 waveform / metadata 路径
+- waveform / metadata 路径
+- 可选 FSW 实测 CSV 路径
 - Center Frequency
 - Span（Zero Span 固定为 0）
 - RBW
@@ -103,9 +156,10 @@ configs/default.json
 - dB 校准值
 - 示波器模拟带宽
 - 是否按 FSW 时间轴重采样
+- 是否进行 FSW 对比
 - 输出目录与保存选项
 
-配置文件带 `schema_version`，为后续算法升级保留兼容能力。
+配置文件继续使用 `schema_version = 1`。v0.2 新增字段都有默认值，因此 v0.1 保存的 JSON 可以直接加载。
 
 ## 当前默认基线
 
@@ -139,8 +193,6 @@ pytest
 
 ## GUI 使用
 
-安装完成后运行：
-
 ```bash
 scope-zero-span-gui
 ```
@@ -154,13 +206,17 @@ python -m scope_zero_span_converter.gui
 GUI 中可以：
 
 1. 选择 waveform CSV 与 metadata JSON；
-2. 修改整个转换过程参数；
-3. 保存为客户自己的 JSON 模板；
-4. 下次直接加载 JSON 恢复参数；
-5. 点击“开始转换”；
-6. 在同一界面查看原始时域波形和恢复后的 Zero Span 功率-时间曲线。
+2. 可选选择 FSW Zero Span 实测 CSV；
+3. 修改整个转换过程参数；
+4. 保存为客户自己的 JSON 模板；
+5. 下次直接加载 JSON 恢复参数；
+6. 点击“开始转换”；
+7. 查看原始时域波形和恢复后的 Zero Span 功率-时间曲线；
+8. 有 FSW 实测数据时直接叠加比较并显示误差指标。
 
 ## CLI 使用
+
+普通转换：
 
 ```bash
 scope-zero-span-converter convert waveform.csv metadata.json
@@ -172,7 +228,13 @@ scope-zero-span-converter convert waveform.csv metadata.json
 scope-zero-span-converter convert waveform.csv metadata.json --config configs/default.json
 ```
 
-生成一份新的默认配置：
+加入 FSW 实测对比：
+
+```bash
+scope-zero-span-converter convert waveform.csv metadata.json --fsw-reference fsw_zero_span.csv
+```
+
+生成新的默认配置：
 
 ```bash
 scope-zero-span-converter init-config customer-config.json
@@ -194,20 +256,14 @@ scope-zero-span-converter init-config customer-config.json
 例如：
 
 ```bash
-git tag -a v0.1.0 -m "v0.1.0 首个版本"
-git push origin v0.1.0
+git tag -a v0.2.0 -m "v0.2.0 FSW 对比与转换记录版本"
+git push origin v0.2.0
 ```
 
 Release 附件名称类似：
 
 ```text
-ScopeZeroSpanConverter-v0.1.0-Windows-x64.zip
-```
-
-客户解压后直接运行：
-
-```text
-ScopeZeroSpanConverter.exe
+ScopeZeroSpanConverter-v0.2.0-Windows-x64.zip
 ```
 
 ## 重要说明
@@ -220,13 +276,17 @@ ScopeZeroSpanConverter.exe
 
 如果示波器支路与频谱仪支路的功分器、线缆、阻抗、探头或衰减不同，则曲线形状可以直接比较，但绝对 dBm 应通过 `calibration_db` 校准。
 
+### FSW 对比不自动“找最佳对齐”
+
+v0.2 按两条曲线的真实共同时间范围直接比较，不自动平移时间轴去获得更漂亮的误差。如果后续确认存在固定链路时延，可以再增加显式 Time Offset 校准参数。
+
 ### Zero Span 不是普通频谱
 
 例如 `Center=200 MHz, Span=0`，表示固定在 200 MHz 附近通过 RBW 滤波器观察功率随时间变化，因此输出横轴必须是 `time_s`。
 
 ## 版本规划
 
-### v0.1 当前基线
+### v0.1 已发布
 
 - 转换核心模块化
 - JSON 配置加载/保存
@@ -239,13 +299,15 @@ ScopeZeroSpanConverter.exe
 - Windows PyInstaller 构建
 - Tag 自动创建 Release
 
-### v0.2
+### v0.2 开发中
 
-- GUI 体验优化
-- 转换参数校验提示
-- 转换元数据记录
-- 客户配置模板管理
+- GUI 参数来源提示
+- 转换参数校验
+- `conversion_metadata.json`
 - FSW 实测 CSV 对比
+- MAE / RMSE / Bias 等误差指标
+- 对比 CSV 导出
+- v0.1 JSON 向后兼容
 
 ### v1.0
 
