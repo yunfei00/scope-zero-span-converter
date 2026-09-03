@@ -2,7 +2,8 @@
   "schema_version": 1,
   "input": {
     "waveform_file": "waveform.csv",
-    "metadata_file": "metadata.json"
+    "metadata_file": "metadata.json",
+    "fsw_reference_file": ""
   },
   "signal": {
     "center_frequency_hz": 200000000.0,
@@ -19,6 +20,10 @@
     "impedance_ohm": 50.0,
     "calibration_db": 0.0
   },
+  "comparison": {
+    "enabled": true,
+    "save_aligned_csv": true
+  },
   "scope": {
     "analog_bandwidth_hz": 350000000.0
   },
@@ -26,6 +31,7 @@
     "directory": "output",
     "save_csv": true,
     "save_plot": true,
+    "save_conversion_metadata": true,
     "show_plot": true
   }
 }
