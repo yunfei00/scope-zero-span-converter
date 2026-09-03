@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .batch import run_batch
 from .config import AppConfig, load_config, save_config
 from .converter import convert, save_result
+from .logging_utils import get_logger
 
 
 def _default_config_path() -> Path:
@@ -18,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    convert_cmd = sub.add_parser("convert", help="执行 Zero Span 转换")
+    convert_cmd = sub.add_parser("convert", help="执行单次 Zero Span 转换")
     convert_cmd.add_argument("waveform", help="waveform.csv")
     convert_cmd.add_argument("metadata", help="metadata.json")
     convert_cmd.add_argument(
@@ -37,20 +39,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="不弹出图形窗口",
     )
 
+    batch_cmd = sub.add_parser("batch", help="批量转换目录中的多组数据")
+    batch_cmd.add_argument(
+        "--config",
+        default=str(_default_config_path()),
+        help="JSON 配置文件，默认 configs/default.json",
+    )
+    batch_cmd.add_argument(
+        "--source",
+        default=None,
+        help="覆盖 JSON 中的 batch.source_directory",
+    )
+    batch_cmd.add_argument(
+        "--output",
+        default=None,
+        help="覆盖 JSON 中的 batch.output_directory",
+    )
+
     init_cmd = sub.add_parser("init-config", help="生成一份默认 JSON 配置")
     init_cmd.add_argument("path", nargs="?", default="converter-config.json")
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-
-    if args.command == "init-config":
-        path = Path(args.path)
-        save_config(AppConfig(), path)
-        print(f"已生成默认配置: {path}")
-        return 0
-
+def _run_single(args) -> int:
     config = load_config(args.config)
     if args.no_show:
         config.output.show_plot = False
@@ -97,6 +108,44 @@ def main(argv: list[str] | None = None) -> int:
     if result.output_comparison_csv:
         print(f"Compare  : {result.output_comparison_csv}")
     return 0
+
+
+def _run_batch(args) -> int:
+    config = load_config(args.config)
+    if args.source:
+        config.batch.source_directory = args.source
+    if args.output:
+        config.batch.output_directory = args.output
+    config.output.show_plot = False
+
+    result = run_batch(config)
+    print("批量转换完成")
+    print(f"发现任务 : {result.jobs_found}")
+    print(f"成功     : {result.succeeded}")
+    print(f"失败     : {result.failed}")
+    if result.summary_csv:
+        print(f"Summary CSV  : {result.summary_csv}")
+    if result.summary_json:
+        print(f"Summary JSON : {result.summary_json}")
+    return 0 if result.failed == 0 else 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    logger = get_logger()
+
+    try:
+        if args.command == "init-config":
+            path = Path(args.path)
+            save_config(AppConfig(), path)
+            print(f"已生成默认配置: {path}")
+            return 0
+        if args.command == "batch":
+            return _run_batch(args)
+        return _run_single(args)
+    except Exception:
+        logger.exception("CLI 执行失败")
+        raise
 
 
 if __name__ == "__main__":
