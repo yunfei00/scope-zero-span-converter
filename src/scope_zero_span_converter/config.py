@@ -6,6 +6,12 @@ from pathlib import Path
 
 
 @dataclass
+class InputConfig:
+    waveform_file: str = "waveform.csv"
+    metadata_file: str = "metadata.json"
+
+
+@dataclass
 class SignalConfig:
     center_frequency_hz: float = 200e6
     span_hz: float = 0.0
@@ -19,6 +25,7 @@ class ConversionConfig:
     rbw_filter: str = "gaussian"
     vbw_enabled: bool = True
     resample_to_fsw_axis: bool = True
+    use_metadata_parameters: bool = True
     impedance_ohm: float = 50.0
     calibration_db: float = 0.0
 
@@ -39,6 +46,7 @@ class OutputConfig:
 @dataclass
 class AppConfig:
     schema_version: int = 1
+    input: InputConfig = field(default_factory=InputConfig)
     signal: SignalConfig = field(default_factory=SignalConfig)
     conversion: ConversionConfig = field(default_factory=ConversionConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
@@ -72,6 +80,7 @@ def load_config(path: str | Path) -> AppConfig:
 
     config = AppConfig(
         schema_version=int(raw.get("schema_version", 1)),
+        input=InputConfig(**raw.get("input", {})),
         signal=SignalConfig(**raw.get("signal", {})),
         conversion=ConversionConfig(**raw.get("conversion", {})),
         scope=ScopeConfig(**raw.get("scope", {})),
