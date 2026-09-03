@@ -38,6 +38,19 @@ class ComparisonConfig:
 
 
 @dataclass
+class BatchConfig:
+    source_directory: str = ""
+    output_directory: str = "batch_output"
+    recursive: bool = True
+    waveform_filename: str = "waveform.csv"
+    metadata_filename: str = "metadata.json"
+    fsw_reference_filename: str = ""
+    continue_on_error: bool = True
+    save_summary_csv: bool = True
+    save_summary_json: bool = True
+
+
+@dataclass
 class ScopeConfig:
     analog_bandwidth_hz: float = 350e6
 
@@ -58,6 +71,7 @@ class AppConfig:
     signal: SignalConfig = field(default_factory=SignalConfig)
     conversion: ConversionConfig = field(default_factory=ConversionConfig)
     comparison: ComparisonConfig = field(default_factory=ComparisonConfig)
+    batch: BatchConfig = field(default_factory=BatchConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
 
@@ -80,6 +94,12 @@ class AppConfig:
             raise ValueError("impedance_ohm 必须 > 0")
         if self.scope.analog_bandwidth_hz <= 0:
             raise ValueError("analog_bandwidth_hz 必须 > 0")
+        if not self.batch.waveform_filename.strip():
+            raise ValueError("batch.waveform_filename 不能为空")
+        if not self.batch.metadata_filename.strip():
+            raise ValueError("batch.metadata_filename 不能为空")
+        if not self.batch.output_directory.strip():
+            raise ValueError("batch.output_directory 不能为空")
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -93,6 +113,7 @@ def load_config(path: str | Path) -> AppConfig:
         signal=SignalConfig(**raw.get("signal", {})),
         conversion=ConversionConfig(**raw.get("conversion", {})),
         comparison=ComparisonConfig(**raw.get("comparison", {})),
+        batch=BatchConfig(**raw.get("batch", {})),
         scope=ScopeConfig(**raw.get("scope", {})),
         output=OutputConfig(**raw.get("output", {})),
     )
