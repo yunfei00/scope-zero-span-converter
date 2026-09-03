@@ -9,6 +9,7 @@ from pathlib import Path
 class InputConfig:
     waveform_file: str = "waveform.csv"
     metadata_file: str = "metadata.json"
+    fsw_reference_file: str = ""
 
 
 @dataclass
@@ -31,6 +32,12 @@ class ConversionConfig:
 
 
 @dataclass
+class ComparisonConfig:
+    enabled: bool = True
+    save_aligned_csv: bool = True
+
+
+@dataclass
 class ScopeConfig:
     analog_bandwidth_hz: float = 350e6
 
@@ -40,6 +47,7 @@ class OutputConfig:
     directory: str = "output"
     save_csv: bool = True
     save_plot: bool = True
+    save_conversion_metadata: bool = True
     show_plot: bool = True
 
 
@@ -49,6 +57,7 @@ class AppConfig:
     input: InputConfig = field(default_factory=InputConfig)
     signal: SignalConfig = field(default_factory=SignalConfig)
     conversion: ConversionConfig = field(default_factory=ConversionConfig)
+    comparison: ComparisonConfig = field(default_factory=ComparisonConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
 
@@ -64,9 +73,9 @@ class AppConfig:
         if self.signal.vbw_hz <= 0:
             raise ValueError("vbw_hz 必须 > 0")
         if self.conversion.detector.lower() != "rms":
-            raise ValueError("v0.1 当前只支持 RMS detector")
+            raise ValueError("当前版本只支持 RMS detector")
         if self.conversion.rbw_filter.lower() != "gaussian":
-            raise ValueError("v0.1 当前只支持 Gaussian RBW filter")
+            raise ValueError("当前版本只支持 Gaussian RBW filter")
         if self.conversion.impedance_ohm <= 0:
             raise ValueError("impedance_ohm 必须 > 0")
         if self.scope.analog_bandwidth_hz <= 0:
@@ -83,6 +92,7 @@ def load_config(path: str | Path) -> AppConfig:
         input=InputConfig(**raw.get("input", {})),
         signal=SignalConfig(**raw.get("signal", {})),
         conversion=ConversionConfig(**raw.get("conversion", {})),
+        comparison=ComparisonConfig(**raw.get("comparison", {})),
         scope=ScopeConfig(**raw.get("scope", {})),
         output=OutputConfig(**raw.get("output", {})),
     )
