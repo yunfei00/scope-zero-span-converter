@@ -41,8 +41,11 @@ time_s, amplitude_dbm
 - JSON 配置保存与加载
 - Zero Span CSV 导出
 - 原始时域 + Zero Span 时域上下对比图
+- Matplotlib 中文字体自动适配（Windows 优先 Microsoft YaHei）
 - CLI 命令行模式
 - 合成 200 MHz CW 自动测试
+- GitHub CI 自动测试
+- `v*` Tag 自动构建 Windows x64 ZIP 并创建 GitHub Release
 
 ## 输入
 
@@ -107,14 +110,14 @@ configs/default.json
 ## 当前默认基线
 
 ```text
-Center    = 200 MHz
-Span      = 0 Hz
-RBW       = 10 MHz
-VBW       = 10 MHz
-Impedance = 50 Ω
-Detector  = RMS
+Center     = 200 MHz
+Span       = 0 Hz
+RBW        = 10 MHz
+VBW        = 10 MHz
+Impedance  = 50 Ω
+Detector   = RMS
 RBW Filter = Gaussian
-Scope BW  = 350 MHz
+Scope BW   = 350 MHz
 ```
 
 默认勾选“优先使用 metadata 中的 FSW 参数”。如果取消勾选，则完全使用 GUI / JSON 中的 Center、RBW、VBW 参数。
@@ -175,6 +178,38 @@ scope-zero-span-converter convert waveform.csv metadata.json --config configs/de
 scope-zero-span-converter init-config customer-config.json
 ```
 
+## Tag 自动发布 Windows 版本
+
+仓库已配置 `.github/workflows/release.yml`。
+
+推送符合 `v*` 的 Tag 后，会自动：
+
+1. 在 `windows-latest` 上安装 Python 3.11 与依赖；
+2. 执行 `compileall` 和 `pytest`；
+3. 使用 PyInstaller 构建 `ScopeZeroSpanConverter.exe`；
+4. 使用 onedir 方式保留 Qt / Matplotlib 运行依赖，提高稳定性；
+5. 将程序、README 和默认 JSON 配置打包为 ZIP；
+6. 自动创建 GitHub Release 并上传 ZIP。
+
+例如：
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0 首个版本"
+git push origin v0.1.0
+```
+
+Release 附件名称类似：
+
+```text
+ScopeZeroSpanConverter-v0.1.0-Windows-x64.zip
+```
+
+客户解压后直接运行：
+
+```text
+ScopeZeroSpanConverter.exe
+```
+
 ## 重要说明
 
 ### 示波器带宽
@@ -198,8 +233,11 @@ scope-zero-span-converter init-config customer-config.json
 - CLI
 - PySide6 GUI
 - 上下时域预览
+- Matplotlib 中文字体适配
 - 基础算法测试
 - GitHub CI
+- Windows PyInstaller 构建
+- Tag 自动创建 Release
 
 ### v0.2
 
@@ -208,12 +246,6 @@ scope-zero-span-converter init-config customer-config.json
 - 转换元数据记录
 - 客户配置模板管理
 - FSW 实测 CSV 对比
-
-### v0.3
-
-- Windows EXE
-- GitHub Actions 自动打包
-- Tag 自动 Release
 
 ### v1.0
 
