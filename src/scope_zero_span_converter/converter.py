@@ -194,11 +194,20 @@ def resample_to_fsw_axis(
 def _resolve_parameters(config: AppConfig, meta_settings: dict):
     signal = config.signal
 
-    center = meta_settings.get("center_frequency_hz") or signal.center_frequency_hz
-    rbw = meta_settings.get("rbw_hz") or signal.rbw_hz
-    vbw = meta_settings.get("vbw_hz") or signal.vbw_hz
-    span = meta_settings.get("span_hz")
-    if span is None:
+    if config.conversion.use_metadata_parameters:
+        center = meta_settings.get("center_frequency_hz")
+        rbw = meta_settings.get("rbw_hz")
+        vbw = meta_settings.get("vbw_hz")
+        span = meta_settings.get("span_hz")
+
+        center = signal.center_frequency_hz if center is None else center
+        rbw = signal.rbw_hz if rbw is None else rbw
+        vbw = signal.vbw_hz if vbw is None else vbw
+        span = signal.span_hz if span is None else span
+    else:
+        center = signal.center_frequency_hz
+        rbw = signal.rbw_hz
+        vbw = signal.vbw_hz
         span = signal.span_hz
 
     if abs(float(span)) > 1e-9:
