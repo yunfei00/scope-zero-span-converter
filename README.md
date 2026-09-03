@@ -2,11 +2,13 @@
 
 示波器 Zero Span 离线转换工具。
 
-用于将示波器采集的时域波形数据，按照中心频率、RBW、VBW、检波方式、阻抗及校准参数，离线转换为类似频谱仪 Zero Span 模式下的功率-时间曲线。
+用于将示波器采集的时域波形，按照 Center、RBW、VBW、Detector、阻抗和校准参数，离线转换为类似频谱仪 Zero Span 模式下的功率-时间曲线。
 
-> 当前项目定位：**独立离线转换工具**。不负责连接或控制示波器、频谱仪；仪表采集由其他系统完成，本工具只负责 `waveform.csv + metadata.json -> Zero Span 时域结果`。
+> 项目定位：**独立离线转换工具**。不负责连接或控制示波器、频谱仪；仪表采集由其他系统完成，本工具负责 `waveform.csv + metadata.json -> Zero Span 时域结果`。
 
-## 当前转换链路
+当前版本：**v0.3.0 开发基线**。
+
+## 转换链路
 
 ```text
 示波器时域 waveform.csv
@@ -26,142 +28,121 @@ time_s, amplitude_dbm
 
 最终结果是 **功率随时间变化**，不是普通 FFT 频谱。
 
-## v0.2 当前功能
+## v0.3 当前功能
 
-- PySide6 中文参数 GUI
-- 选择 `waveform.csv` 与 `metadata.json`
+### 单次转换
+
+- PySide6 中文 GUI
+- `waveform.csv + metadata.json` 转换
 - 可选导入 FSW Zero Span 实测 CSV
 - Center / Span / RBW / VBW 参数
-- 可选择是否优先使用 metadata 中的 FSW 参数
-- GUI 显示 Center / RBW / VBW 的实际参数来源
+- 可选择优先使用 metadata 参数或 GUI/JSON 参数
 - RMS Detector
 - Gaussian RBW Filter
 - VBW 开关
 - FSW Sweep Time / Points 时间轴重采样
-- 50 Ω 阻抗及 dB 校准
+- 50 Ω 阻抗与 dB 校准
 - 示波器模拟带宽保护
-- JSON 配置保存与加载
-- v0.1 JSON 配置向后兼容
-- Zero Span CSV 导出
 - 原始时域 + Zero Span 时域上下对比图
-- FSW 实测与恢复曲线叠加
+- Matplotlib 中文字体自动适配
+- FSW 实测曲线叠加
 - MAE / RMSE / Bias / 最大误差 / 相关系数
-- 对齐后的 `comparison_to_fsw.csv`
-- 自动生成 `conversion_metadata.json`
-- Matplotlib 中文字体自动适配（Windows 优先 Microsoft YaHei）
-- CLI 命令行模式
-- 合成 200 MHz CW 自动测试
-- GitHub CI 自动测试
-- `v*` Tag 自动构建 Windows x64 ZIP 并创建 GitHub Release
+- `conversion_metadata.json` 转换记录
+- `comparison_to_fsw.csv` 对比数据
 
-## 输入
+### 批量转换
 
-必选：
+GUI 新增“批量转换”页签，可以一次处理整个目录树。
+
+默认要求每个任务目录包含：
 
 ```text
-waveform.csv
-metadata.json
+case_001/
+├─ waveform.csv
+└─ metadata.json
+
+case_002/
+├─ waveform.csv
+└─ metadata.json
 ```
 
-可选：
+如果还需要与 FSW 实测值比较，可以统一指定 FSW 文件名，例如：
 
 ```text
-FSW Zero Span 实测 CSV
+case_001/
+├─ waveform.csv
+├─ metadata.json
+└─ fsw_zero_span.csv
 ```
 
-标准示波器波形格式：
-
-```csv
-time_s,voltage_v
-0.0,...
-...
-```
-
-FSW Zero Span 参考格式：
-
-```csv
-time_s,amplitude_dbm
-0.0,...
-...
-```
-
-也兼容 `level_dbm` / `power_dbm` 作为功率列名。
-
-## 输出
-
-默认输出：
+批量输出保持原目录层级：
 
 ```text
-output/
-├─ zero_span_from_scope.csv
-├─ waveform_zero_span_compare.png
-├─ conversion_metadata.json
-└─ comparison_to_fsw.csv        # 提供 FSW 实测 CSV 时生成
+batch_output/
+├─ case_001/
+│  ├─ zero_span_from_scope.csv
+│  ├─ waveform_zero_span_compare.png
+│  ├─ conversion_metadata.json
+│  └─ comparison_to_fsw.csv
+├─ case_002/
+│  └─ ...
+├─ batch_summary.csv
+└─ batch_summary.json
 ```
 
-Zero Span CSV：
+批量汇总记录：
 
-```csv
-time_s,amplitude_dbm,envelope_v_rms
-...
-```
-
-FSW 对比 CSV：
-
-```csv
-time_s,reconstructed_dbm,fsw_reference_dbm,error_db
-...
-```
-
-## conversion_metadata.json
-
-每次转换可自动保存完整转换记录，包括：
-
-- 软件版本
-- 转换时间
-- 输入文件路径
-- 实际 Center / RBW / VBW
-- 参数来自 metadata 还是 GUI/JSON
-- Detector / RBW Filter / VBW
-- 阻抗和校准值
-- 示波器采样率
-- 输入点数 / 输出点数
-- FSW Sweep Time / Trace Points
-- 是否执行 FSW 时间轴重采样
-- FSW 对比误差指标
-- 完整配置快照
-
-这样后续拿到某条结果时，可以追溯它到底是用什么参数生成的。
-
-## JSON 配置
-
-项目使用 JSON 保存整个转换过程参数，默认配置位于：
-
-```text
-configs/default.json
-```
-
-配置包含：
-
-- waveform / metadata 路径
-- 可选 FSW 实测 CSV 路径
-- Center Frequency
-- Span（Zero Span 固定为 0）
+- 成功/失败状态
+- Center
 - RBW
 - VBW
-- 是否优先使用 metadata 参数
-- Detector
-- RBW Filter
-- 输入阻抗
-- dB 校准值
-- 示波器模拟带宽
-- 是否按 FSW 时间轴重采样
-- 是否进行 FSW 对比
-- 输出目录与保存选项
+- Scope Sample Rate
+- MAE
+- RMSE
+- Bias
+- Correlation
+- 输出目录
+- 错误原因
 
-配置文件继续使用 `schema_version = 1`。v0.2 新增字段都有默认值，因此 v0.1 保存的 JSON 可以直接加载。
+单个任务失败时默认继续执行后续任务。
 
-## 当前默认基线
+### 配置模板
+
+除了普通 JSON 配置加载/保存，v0.3 增加客户模板管理：
+
+- 另存为模板
+- 加载模板
+- 删除模板
+- 刷新模板
+- 打开模板目录
+
+模板默认保存在用户目录：
+
+```text
+~/ScopeZeroSpanConverter/templates/
+```
+
+例如可以保存：
+
+```text
+客户A_200M_10M.json
+客户B_210M_5M.json
+实验室默认.json
+```
+
+v0.1 / v0.2 保存的 JSON 仍然兼容，缺失的 v0.3 字段自动使用默认值。
+
+### 日志
+
+应用日志默认保存到：
+
+```text
+~/ScopeZeroSpanConverter/logs/scope-zero-span-converter.log
+```
+
+GUI 可直接点击“打开日志目录”。转换失败、批量失败和配置异常都会写入日志，便于客户现场问题定位。
+
+## 默认参数
 
 ```text
 Center     = 200 MHz
@@ -174,9 +155,77 @@ RBW Filter = Gaussian
 Scope BW   = 350 MHz
 ```
 
-默认勾选“优先使用 metadata 中的 FSW 参数”。如果取消勾选，则完全使用 GUI / JSON 中的 Center、RBW、VBW 参数。
+默认优先读取 `metadata.json` 中可用的 FSW Center / RBW / VBW；如果取消“优先使用 metadata”，则完全使用 GUI / JSON 参数。
 
-## 安装
+## 输入格式
+
+### Waveform
+
+推荐：
+
+```csv
+time_s,voltage_v
+0.0,...
+...
+```
+
+### FSW Zero Span 实测 CSV
+
+支持仓库当前 Zero Span 标准：
+
+```csv
+time_s,amplitude_dbm
+0.0,...
+...
+```
+
+## 单次输出
+
+默认：
+
+```text
+output/
+├─ zero_span_from_scope.csv
+├─ waveform_zero_span_compare.png
+├─ conversion_metadata.json
+└─ comparison_to_fsw.csv      # 提供 FSW 实测 CSV 时
+```
+
+`zero_span_from_scope.csv`：
+
+```csv
+time_s,amplitude_dbm,envelope_v_rms
+...
+```
+
+## JSON 配置
+
+默认配置：
+
+```text
+configs/default.json
+```
+
+配置完整覆盖：
+
+- 单次输入文件
+- FSW 实测参考文件
+- Center / Span / RBW / VBW
+- 参数来源策略
+- Detector / RBW Filter / VBW
+- 阻抗 / Calibration
+- Scope 模拟带宽
+- FSW 对比设置
+- 单次输出设置
+- 批量输入根目录
+- 批量文件名规则
+- 是否递归扫描
+- 出错后是否继续
+- 批量汇总输出
+
+配置继续使用 `schema_version = 1`，v0.3 新字段都有默认值，以保证旧配置兼容。
+
+## 安装开发版
 
 建议 Python 3.11+：
 
@@ -191,7 +240,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## GUI 使用
+## GUI
 
 ```bash
 scope-zero-span-gui
@@ -203,115 +252,119 @@ scope-zero-span-gui
 python -m scope_zero_span_converter.gui
 ```
 
-GUI 中可以：
+GUI 有两个主页面：
 
-1. 选择 waveform CSV 与 metadata JSON；
-2. 可选选择 FSW Zero Span 实测 CSV；
-3. 修改整个转换过程参数；
-4. 保存为客户自己的 JSON 模板；
-5. 下次直接加载 JSON 恢复参数；
-6. 点击“开始转换”；
-7. 查看原始时域波形和恢复后的 Zero Span 功率-时间曲线；
-8. 有 FSW 实测数据时直接叠加比较并显示误差指标。
+```text
+单次转换
+批量转换
+```
 
-## CLI 使用
-
-普通转换：
+## CLI 单次转换
 
 ```bash
 scope-zero-span-converter convert waveform.csv metadata.json
 ```
 
-指定配置：
+带 FSW 参考：
 
 ```bash
-scope-zero-span-converter convert waveform.csv metadata.json --config configs/default.json
+scope-zero-span-converter convert waveform.csv metadata.json \
+  --fsw-reference fsw_zero_span.csv
 ```
 
-加入 FSW 实测对比：
+## CLI 批量转换
+
+先在 JSON 中配置 `batch`，然后：
 
 ```bash
-scope-zero-span-converter convert waveform.csv metadata.json --fsw-reference fsw_zero_span.csv
+scope-zero-span-converter batch --config customer-config.json
 ```
 
-生成新的默认配置：
+也可以临时覆盖目录：
 
 ```bash
-scope-zero-span-converter init-config customer-config.json
+scope-zero-span-converter batch \
+  --config customer-config.json \
+  --source data \
+  --output batch_output
 ```
 
-## Tag 自动发布 Windows 版本
+## Windows 自动发布
 
-仓库已配置 `.github/workflows/release.yml`。
+仓库已经配置：
 
-推送符合 `v*` 的 Tag 后，会自动：
+```text
+.github/workflows/release.yml
+```
 
-1. 在 `windows-latest` 上安装 Python 3.11 与依赖；
-2. 执行 `compileall` 和 `pytest`；
-3. 使用 PyInstaller 构建 `ScopeZeroSpanConverter.exe`；
-4. 使用 onedir 方式保留 Qt / Matplotlib 运行依赖，提高稳定性；
-5. 将程序、README 和默认 JSON 配置打包为 ZIP；
-6. 自动创建 GitHub Release 并上传 ZIP。
+推送 `v*` Tag 后自动：
+
+1. Windows Python 3.11 构建；
+2. `compileall + pytest`；
+3. PyInstaller onedir 打包；
+4. 打包 Windows x64 ZIP；
+5. 自动创建 GitHub Release；
+6. 上传 Release 附件。
 
 例如：
 
 ```bash
-git tag -a v0.2.0 -m "v0.2.0 FSW 对比与转换记录版本"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "v0.3.0"
+git push origin v0.3.0
 ```
 
-Release 附件名称类似：
+客户下载 ZIP 后解压并运行：
 
 ```text
-ScopeZeroSpanConverter-v0.2.0-Windows-x64.zip
+ScopeZeroSpanConverter.exe
 ```
 
 ## 重要说明
 
 ### 示波器带宽
 
-转换目标频率必须位于示波器模拟前端有效带宽内。当前默认按 DSO-X 3034A 的 350 MHz 模拟带宽检查。
+目标 `Center + RBW/2` 必须位于示波器模拟前端有效带宽内。当前默认按 DSO-X 3034A 的 350 MHz 模拟带宽检查。
 
-### 绝对 dBm 校准
+### 绝对 dBm
 
-如果示波器支路与频谱仪支路的功分器、线缆、阻抗、探头或衰减不同，则曲线形状可以直接比较，但绝对 dBm 应通过 `calibration_db` 校准。
-
-### FSW 对比不自动“找最佳对齐”
-
-v0.2 按两条曲线的真实共同时间范围直接比较，不自动平移时间轴去获得更漂亮的误差。如果后续确认存在固定链路时延，可以再增加显式 Time Offset 校准参数。
+如果示波器支路与频谱仪支路的功分器、线缆、阻抗、探头或衰减不同，绝对 dBm 应通过 `calibration_db` 标定。
 
 ### Zero Span 不是普通频谱
 
-例如 `Center=200 MHz, Span=0`，表示固定在 200 MHz 附近通过 RBW 滤波器观察功率随时间变化，因此输出横轴必须是 `time_s`。
+例如 `Center=200 MHz, Span=0` 表示固定在 200 MHz 附近经过 RBW 滤波后观察功率随时间变化，所以输出横轴必须是 `time_s`。
 
-## 版本规划
+## 版本演进
 
-### v0.1 已发布
+### v0.1
 
-- 转换核心模块化
-- JSON 配置加载/保存
+- Zero Span 核心算法
+- JSON 配置
 - CLI
-- PySide6 GUI
-- 上下时域预览
-- Matplotlib 中文字体适配
-- 基础算法测试
-- GitHub CI
-- Windows PyInstaller 构建
-- Tag 自动创建 Release
+- 基础 GUI
+- 中文绘图
+- Windows 自动 Release
 
-### v0.2 开发中
+### v0.2
 
-- GUI 参数来源提示
-- 转换参数校验
-- `conversion_metadata.json`
 - FSW 实测 CSV 对比
 - MAE / RMSE / Bias 等误差指标
-- 对比 CSV 导出
-- v0.1 JSON 向后兼容
+- conversion metadata
+- 参数来源显示
 
-### v1.0
+### v0.3
+
+- 单次 / 批量双页签 GUI
+- 递归批量转换
+- 批量结果表格
+- batch_summary.csv / JSON
+- 客户配置模板管理
+- 应用日志
+- 旧 JSON 配置兼容
+
+### 后续 v1.0
 
 - 客户正式版本
-- 稳定配置兼容
-- 完整日志
-- 用户说明书
+- 完整用户说明书
+- 更完整的 Detector / RBW 模型
+- 校准流程与标定模板
+- 更严格的版本兼容策略
