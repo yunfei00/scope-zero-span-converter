@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "signal": {
+    "center_frequency_hz": 200000000.0,
+    "span_hz": 0.0,
+    "rbw_hz": 10000000.0,
+    "vbw_hz": 10000000.0
+  },
+  "conversion": {
+    "detector": "rms",
+    "rbw_filter": "gaussian",
+    "vbw_enabled": true,
+    "resample_to_fsw_axis": true,
+    "impedance_ohm": 50.0,
+    "calibration_db": 0.0
+  },
+  "scope": {
+    "analog_bandwidth_hz": 350000000.0
+  },
+  "output": {
+    "directory": "output",
+    "save_csv": true,
+    "save_plot": true,
+    "show_plot": true
+  }
+}
