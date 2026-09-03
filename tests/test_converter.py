@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from scope_zero_span_converter import __version__
 from scope_zero_span_converter.config import AppConfig
 from scope_zero_span_converter.converter import convert, save_result
 
@@ -48,7 +49,7 @@ def test_200mhz_cw_converts_to_stable_zerospan(tmp_path):
     assert result.parameter_sources["center_frequency_hz"] == "config"
 
 
-def test_v02_saves_conversion_metadata_and_fsw_comparison(tmp_path):
+def test_saves_conversion_metadata_and_fsw_comparison(tmp_path):
     waveform_path, metadata_path, config = _make_200mhz_case(tmp_path)
     result = convert(waveform_path, metadata_path, config)
 
@@ -85,5 +86,5 @@ def test_v02_saves_conversion_metadata_and_fsw_comparison(tmp_path):
     metadata = json.loads(
         (output_dir / "conversion_metadata.json").read_text(encoding="utf-8")
     )
-    assert metadata["software"]["version"] == "0.2.0"
+    assert metadata["software"]["version"] == __version__
     assert metadata["comparison"]["mae_db"] == pytest.approx(1.0, abs=1e-6)
