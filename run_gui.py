@@ -1,4 +1,4 @@
-from scope_zero_span_converter.gui import main
+from scope_zero_span_converter.app import main
 
 
 if __name__ == "__main__":
