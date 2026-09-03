@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "input": {
+    "waveform_file": "waveform.csv",
+    "metadata_file": "metadata.json"
+  },
   "signal": {
     "center_frequency_hz": 200000000.0,
     "span_hz": 0.0,
@@ -11,6 +15,7 @@
     "rbw_filter": "gaussian",
     "vbw_enabled": true,
     "resample_to_fsw_axis": true,
+    "use_metadata_parameters": true,
     "impedance_ohm": 50.0,
     "calibration_db": 0.0
   },
