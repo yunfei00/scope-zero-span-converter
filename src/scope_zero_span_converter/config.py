@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -102,11 +103,7 @@ class AppConfig:
             raise ValueError("batch.output_directory 不能为空")
 
 
-def load_config(path: str | Path) -> AppConfig:
-    path = Path(path)
-    with path.open("r", encoding="utf-8") as f:
-        raw = json.load(f)
-
+def config_from_dict(raw: dict[str, Any]) -> AppConfig:
     config = AppConfig(
         schema_version=int(raw.get("schema_version", 1)),
         input=InputConfig(**raw.get("input", {})),
@@ -119,6 +116,15 @@ def load_config(path: str | Path) -> AppConfig:
     )
     config.validate()
     return config
+
+
+def load_config(path: str | Path) -> AppConfig:
+    path = Path(path)
+    with path.open("r", encoding="utf-8") as f:
+        raw = json.load(f)
+    if not isinstance(raw, dict):
+        raise ValueError("配置 JSON 根节点必须是对象")
+    return config_from_dict(raw)
 
 
 def save_config(config: AppConfig, path: str | Path) -> None:
