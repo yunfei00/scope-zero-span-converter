@@ -1,0 +1,86 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          python -m compileall src
+          pytest -q
+
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --name ScopeZeroSpanConverter `
+            --paths src `
+            run_gui.py
+
+      - name: Prepare release package
+        shell: pwsh
+        run: |
+          Copy-Item README.md dist/ScopeZeroSpanConverter/README.md
+          New-Item -ItemType Directory -Force dist/ScopeZeroSpanConverter/configs | Out-Null
+          Copy-Item configs/default.json dist/ScopeZeroSpanConverter/configs/default.json
+
+          $tag = "${{ github.ref_name }}"
+          $zip = "ScopeZeroSpanConverter-$tag-Windows-x64.zip"
+          Compress-Archive -Path dist/ScopeZeroSpanConverter/* -DestinationPath $zip -Force
+          "RELEASE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScopeZeroSpanConverter-${{ github.ref_name }}-Windows-x64
+          path: ${{ env.RELEASE_ZIP }}
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.RELEASE_ZIP }}
+          generate_release_notes: true
+          name: Scope Zero Span Converter ${{ github.ref_name }}
+          body: |
+            ## Scope Zero Span Converter ${{ github.ref_name }}
+
+            Windows x64 客户版本。
+
+            使用方法：
+            1. 下载并解压 `ScopeZeroSpanConverter-${{ github.ref_name }}-Windows-x64.zip`
+            2. 双击 `ScopeZeroSpanConverter.exe`
+            3. 选择 waveform.csv 和 metadata.json
+            4. 按需要加载/保存 JSON 参数配置
+            5. 点击“开始转换”生成 Zero Span 时域结果
+
+            当前版本为 Zero Span 离线转换工具基线，默认参数为 200 MHz / Span 0 / RBW 10 MHz。
