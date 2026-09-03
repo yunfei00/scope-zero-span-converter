@@ -50,6 +50,10 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item README.md dist/ScopeZeroSpanConverter/README.md
+          if (Test-Path CHANGELOG.md) {
+            Copy-Item CHANGELOG.md dist/ScopeZeroSpanConverter/CHANGELOG.md
+          }
+
           New-Item -ItemType Directory -Force dist/ScopeZeroSpanConverter/configs | Out-Null
           Copy-Item configs/default.json dist/ScopeZeroSpanConverter/configs/default.json
 
@@ -76,11 +80,19 @@ jobs:
 
             Windows x64 客户版本。
 
-            使用方法：
+            ### 使用方法
             1. 下载并解压 `ScopeZeroSpanConverter-${{ github.ref_name }}-Windows-x64.zip`
             2. 双击 `ScopeZeroSpanConverter.exe`
-            3. 选择 waveform.csv 和 metadata.json
-            4. 按需要加载/保存 JSON 参数配置
-            5. 点击“开始转换”生成 Zero Span 时域结果
+            3. 单次转换：选择 waveform.csv 和 metadata.json，可选导入 FSW Zero Span 实测 CSV
+            4. 可按需要加载/保存 JSON 配置或客户模板
+            5. 批量转换功能请在“批量转换”页签中使用
 
-            当前版本为 Zero Span 离线转换工具基线，默认参数为 200 MHz / Span 0 / RBW 10 MHz。
+            ### 默认测量基线
+            - Center: 200 MHz
+            - Span: 0 Hz
+            - RBW: 10 MHz
+            - VBW: 10 MHz
+            - Detector: RMS
+            - RBW Filter: Gaussian
+
+            具体版本变化请查看本 Release 自动生成的变更记录，以及压缩包中的 `CHANGELOG.md`。
