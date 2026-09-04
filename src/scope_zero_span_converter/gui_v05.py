@@ -5,7 +5,7 @@ import numpy as np
 from .dcm_parameter_extractor_widget_v7 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
-from .dcm_zero_span_widget_v6 import DcmZeroSpanWidget
+from .dcm_zero_span_widget_v7 import DcmZeroSpanWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
 
@@ -34,9 +34,7 @@ class MainWindow(WaveformResearchMainWindow):
 
         self.dcm_zero_span_tab = DcmZeroSpanWidget(self)
         self.tabs.insertTab(3, self.dcm_zero_span_tab, "DCM → Zero Span")
-        LOGGER.info(
-            "DCM generator, extractor, zoomable frequency spectrum and Zero Span linked page ready"
-        )
+        LOGGER.info("DCM generator, extractor, frequency spectrum and Zero Span linked page ready")
 
     def _enable_ideal_edge_controls(self) -> None:
         for control in (
