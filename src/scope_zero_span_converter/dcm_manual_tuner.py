@@ -11,6 +11,7 @@ from .dcm_global_refiner import (
     _design_matrix,
     _final_linear_fit_indices,
     _fit_weights,
+    _ideal_basis,
     _robust_sigma,
     _valid_timing,
 )
@@ -42,7 +43,7 @@ class DcmManualOnTimeTuningResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "algorithm": "dcm_manual_on_time_tuner_v1",
+            "algorithm": "dcm_manual_on_time_tuner_v2",
             "source": self.source,
             "on_time_s": self.on_time_s,
             "fall_start_s": self.fall_start_s,
@@ -63,23 +64,23 @@ def tune_dcm_on_time_manually(
     time_s: np.ndarray,
     voltage_v: np.ndarray,
     basic: DcmBasicExtractionResult,
-    ringing: DcmRingingExtractionResult,
-    dcm: DcmDiscontinuousExtractionResult,
+    ringing: DcmRingingExtractionResult | None = None,
+    dcm: DcmDiscontinuousExtractionResult | None = None,
     *,
     on_time_s: float,
     global_result: DcmGlobalRefinementResult | None = None,
     max_fit_points: int = 60_000,
     reconstruction_chunk_points: int = 200_000,
 ) -> DcmManualOnTimeTuningResult:
-    """固定其它非线性参数，仅人工调整导通时间并实时重建完整波形。
+    """固定其它已知参数，仅人工调整导通时间并实时重建完整波形。
 
-    设计目的不是替代自动算法，而是让研究人员在自动提取低置信度时，
-    通过“拖动导通时间 -> 看拟合曲线是否重合”的方式做最后校正。
+    人工导通时间校正只依赖第一阶段基础提取结果即可使用：
+    - 若全局联合精修已完成，优先使用联合精修的其它参数；
+    - 若尖峰/振铃和 DCM 两阶段都成功，则使用完整分阶段模型；
+    - 若后续阶段任一未完成，则自动退化为基础电平/时间轨迹重建。
 
-    每次修改导通时间后：
-    1. 下降沿、续流区和 DCM 起点会按时间定义联动平移；
-    2. 三个电平以及上/下降沿、DCM 阻尼分量的线性系数重新最小二乘求解；
-    3. 返回完整重建波形、局部/全局误差和工程匹配度。
+    因此真实 CSV 上即使寄生振铃或 DCM 拟合失败，导通时间滑块仍然可以工作，
+    用户仍可通过下降沿位置和基础轨迹重合程度进行人工校正。
     """
 
     t = np.asarray(time_s, dtype=float)
@@ -95,8 +96,10 @@ def tune_dcm_on_time_manually(
     if dt <= 0:
         raise ValueError("无法确定有效采样间隔")
 
+    use_full_model = False
     if global_result is not None:
         source = "global_refinement"
+        use_full_model = True
         x = np.array(
             [
                 global_result.switching_start_s,
@@ -111,8 +114,9 @@ def tune_dcm_on_time_manually(
             ],
             dtype=float,
         )
-    else:
-        source = "staged_extraction"
+    elif ringing is not None and dcm is not None:
+        source = "staged_full_model"
+        use_full_model = True
         x = np.array(
             [
                 basic.switching_start_s,
@@ -127,9 +131,31 @@ def tune_dcm_on_time_manually(
             ],
             dtype=float,
         )
+    else:
+        source = "basic_fallback"
+        x = np.array(
+            [
+                basic.switching_start_s,
+                basic.rise_time_s,
+                float(on_time_s),
+                basic.fall_time_s,
+                basic.freewheel_time_s,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            dtype=float,
+        )
 
     if not _valid_timing(x, float(t[0]), float(t[-1]), dt):
         raise ValueError("当前导通时间会使下降沿/续流/DCM 区域超出波形时间范围")
+
+    def build_matrix(current_t: np.ndarray) -> np.ndarray:
+        if use_full_model:
+            return _design_matrix(current_t, x)
+        baseline, high, low = _ideal_basis(current_t, x)
+        return np.column_stack((baseline, high, low))
 
     fit_indices = _final_linear_fit_indices(
         t,
@@ -138,7 +164,7 @@ def tune_dcm_on_time_manually(
     )
     fit_t = t[fit_indices]
     fit_y = y[fit_indices]
-    matrix = _design_matrix(fit_t, x)
+    matrix = build_matrix(fit_t)
     weights = _fit_weights(fit_t, x, dt)
     sqrt_w = np.sqrt(weights)
     coeff, *_ = np.linalg.lstsq(
@@ -151,7 +177,7 @@ def tune_dcm_on_time_manually(
     chunk = max(10_000, int(reconstruction_chunk_points))
     for start in range(0, len(t), chunk):
         stop = min(len(t), start + chunk)
-        reconstruction[start:stop] = _design_matrix(t[start:stop], x) @ coeff
+        reconstruction[start:stop] = build_matrix(t[start:stop]) @ coeff
 
     residual = y - reconstruction
     full_rmse = float(np.sqrt(np.mean(residual**2)))
