@@ -24,7 +24,7 @@ def test_zero_span_parameters_are_collapsed_by_default(qapp):
     widget = DcmZeroSpanWidget()
     assert not widget.zero_span_toggle.isChecked()
     assert not widget.zero_span_panel.isVisible()
-    assert len(widget._parameter_controls) == 19
+    assert len(widget._parameter_controls) == 20
 
 
 def test_dcm_slider_value_change_updates_both_waveforms(qapp):
