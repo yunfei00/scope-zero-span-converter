@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .dcm_parameter_extractor_widget import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v2 import DcmSwGeneratorWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
@@ -12,11 +13,13 @@ LOGGER = get_logger()
 
 
 class MainWindow(WaveformResearchMainWindow):
-    """v0.4 波形研究界面 + 独立 DCM SW 真值波形生成器。"""
+    """v0.4 波形研究界面 + DCM SW 真值生成与基础参数反演。"""
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Scope Zero Span Converter v0.4 - 波形研究 / DCM SW 生成器")
+        self.setWindowTitle(
+            "Scope Zero Span Converter v0.4 - 波形研究 / DCM SW 生成 / 参数提取"
+        )
 
         self.dcm_generator_tab = DcmSwGeneratorWidget(self)
         self._enable_ideal_edge_controls()
@@ -24,7 +27,10 @@ class MainWindow(WaveformResearchMainWindow):
             self._accept_generated_dcm_waveform
         )
         self.tabs.insertTab(1, self.dcm_generator_tab, "DCM SW 生成器")
-        LOGGER.info("DCM SW generator tab ready")
+
+        self.dcm_extractor_tab = DcmParameterExtractorWidget(self)
+        self.tabs.insertTab(2, self.dcm_extractor_tab, "DCM 参数提取")
+        LOGGER.info("DCM SW generator and parameter extractor tabs ready")
 
     def _enable_ideal_edge_controls(self) -> None:
         """允许上升/下降时间输入 0 ns；0 表示理想瞬时阶跃。
