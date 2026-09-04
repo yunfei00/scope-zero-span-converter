@@ -43,6 +43,12 @@ class DcmUnifiedFitResult:
         }
 
 
+def _phase_folded_initial_value(signed_amplitude_v: float, phase_rad: float) -> float:
+    """把内部 A*cos(wt+phi) 拟合结果映射成生成器 phi=0 的 t=0 初始电压。"""
+
+    return float(signed_amplitude_v * np.cos(phase_rad))
+
+
 def parameters_from_extraction(
     basic: DcmBasicExtractionResult,
     ringing: DcmRingingExtractionResult | None,
@@ -51,7 +57,8 @@ def parameters_from_extraction(
 ) -> DcmSwParameters:
     """把自动提取结果映射成生成器原生 DcmSwParameters。
 
-    phase 是反演内部的辅助量，不属于当前生成器模型，因此不会进入最终主参数。
+    自动反演内部允许 phase 吸收采样相位/边界定位误差；当前 DCM SW 生成器没有 phase
+    参数，因此映射时使用 A*cos(phi) 作为生成器定义的 t=0 有符号初始电压。
     noise_rms_v 记录自动估计值，但人工确定性重建不会重新注入随机噪声。
     """
 
@@ -66,11 +73,20 @@ def parameters_from_extraction(
             freewheel_time_s=global_result.freewheel_time_s,
             rise_time_s=global_result.rise_time_s,
             fall_time_s=global_result.fall_time_s,
-            rise_spike_amplitude_v=global_result.rise_spike_amplitude_v,
-            fall_spike_amplitude_v=global_result.fall_spike_amplitude_v,
+            rise_spike_amplitude_v=_phase_folded_initial_value(
+                global_result.rise_spike_amplitude_v,
+                global_result.rise_spike_phase_rad,
+            ),
+            fall_spike_amplitude_v=_phase_folded_initial_value(
+                global_result.fall_spike_amplitude_v,
+                global_result.fall_spike_phase_rad,
+            ),
             spike_ringing_frequency_hz=global_result.ringing_frequency_hz,
             spike_decay_rate_per_s=global_result.ringing_decay_rate_per_s,
-            discontinuous_initial_amplitude_v=global_result.dcm_initial_amplitude_v,
+            discontinuous_initial_amplitude_v=_phase_folded_initial_value(
+                global_result.dcm_initial_amplitude_v,
+                global_result.dcm_phase_rad,
+            ),
             discontinuous_resonance_frequency_hz=global_result.dcm_frequency_hz,
             discontinuous_decay_rate_per_s=global_result.dcm_decay_rate_per_s,
             noise_rms_v=global_result.final_noise_rms_v,
@@ -84,8 +100,14 @@ def parameters_from_extraction(
         ring_f = 0.0
         ring_alpha = 0.0
     else:
-        rise_amp = ringing.rise.signed_initial_amplitude_v
-        fall_amp = ringing.fall.signed_initial_amplitude_v
+        rise_amp = _phase_folded_initial_value(
+            ringing.rise.signed_initial_amplitude_v,
+            ringing.rise.phase_rad,
+        )
+        fall_amp = _phase_folded_initial_value(
+            ringing.fall.signed_initial_amplitude_v,
+            ringing.fall.phase_rad,
+        )
         ring_f = ringing.ringing_frequency_hz
         ring_alpha = ringing.decay_rate_per_s
 
@@ -95,7 +117,10 @@ def parameters_from_extraction(
         dcm_alpha = 0.0
         noise_rms = basic.estimated_noise_rms_v
     else:
-        dcm_amp = dcm.signed_initial_amplitude_v
+        dcm_amp = _phase_folded_initial_value(
+            dcm.signed_initial_amplitude_v,
+            dcm.phase_rad,
+        )
         dcm_f = dcm.resonance_frequency_hz
         dcm_alpha = dcm.decay_rate_per_s
         noise_rms = dcm.final_noise_rms_v
