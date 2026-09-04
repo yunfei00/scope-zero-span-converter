@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .dcm_sw_generator import DcmSwWaveform
-from .dcm_sw_generator_widget import DcmSwGeneratorWidget
+from .dcm_sw_generator_widget_v2 import DcmSwGeneratorWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
 
