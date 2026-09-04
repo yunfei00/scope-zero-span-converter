@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "model": "single_event_dcm_sw_v1",
+  "model": "single_event_dcm_sw_v2_signed_spikes",
   "parameters": {
     "baseline_voltage_v": 0.0,
     "on_high_voltage_v": 12.0,
@@ -12,7 +12,7 @@
     "rise_time_s": 4e-8,
     "fall_time_s": 5e-8,
     "rise_spike_amplitude_v": 3.0,
-    "fall_spike_amplitude_v": 4.0,
+    "fall_spike_amplitude_v": -4.0,
     "spike_ringing_frequency_hz": 60000000.0,
     "spike_decay_rate_per_s": 8000000.0,
     "discontinuous_initial_amplitude_v": 2.5,
