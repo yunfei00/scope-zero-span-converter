@@ -74,11 +74,20 @@ class LinkedDoubleControl(QWidget):
         self.slider.valueChanged.connect(self._on_slider_changed)
         self.spin.valueChanged.connect(self._on_spin_changed)
 
+        # QDoubleSpinBox 在范围跨 0 时初值通常就是 0；即使 setValue(0)
+        # 不触发 valueChanged，也必须保证滑块初始位置与数值框一致。
+        self._sync_slider_from_value(self.spin.value())
+
     def value(self) -> float:
         return float(self.spin.value())
 
     def setValue(self, value: float) -> None:  # noqa: N802 - Qt API compatibility
-        self.spin.setValue(float(value))
+        self._syncing = True
+        try:
+            self.spin.setValue(float(value))
+            self._sync_slider_from_value(self.spin.value())
+        finally:
+            self._syncing = False
 
     def setEnabled(self, enabled: bool) -> None:  # noqa: N802
         super().setEnabled(enabled)
@@ -114,6 +123,13 @@ class LinkedDoubleControl(QWidget):
         ratio = max(0.0, min(1.0, ratio))
         return int(round(ratio * _SLIDER_STEPS))
 
+    def _sync_slider_from_value(self, value: float) -> None:
+        previous = self.slider.blockSignals(True)
+        try:
+            self.slider.setValue(self._value_to_slider(float(value)))
+        finally:
+            self.slider.blockSignals(previous)
+
     def _on_slider_changed(self, slider_value: int) -> None:
         if self._syncing:
             return
@@ -130,7 +146,7 @@ class LinkedDoubleControl(QWidget):
             return
         self._syncing = True
         try:
-            self.slider.setValue(self._value_to_slider(float(value)))
+            self._sync_slider_from_value(float(value))
         finally:
             self._syncing = False
         self.valueChanged.emit(float(value))
@@ -182,12 +198,18 @@ class LinkedIntControl(QWidget):
 
         self.slider.valueChanged.connect(self._on_slider_changed)
         self.spin.valueChanged.connect(self._on_spin_changed)
+        self._sync_slider_from_value(self.spin.value())
 
     def value(self) -> int:
         return int(self.spin.value())
 
     def setValue(self, value: int) -> None:  # noqa: N802
-        self.spin.setValue(int(value))
+        self._syncing = True
+        try:
+            self.spin.setValue(int(value))
+            self._sync_slider_from_value(self.spin.value())
+        finally:
+            self._syncing = False
 
     def _expand_soft_range_for(self, value: int) -> None:
         if self._soft_min <= value <= self._soft_max:
@@ -211,6 +233,13 @@ class LinkedIntControl(QWidget):
         ratio = max(0.0, min(1.0, ratio))
         return int(round(ratio * _SLIDER_STEPS))
 
+    def _sync_slider_from_value(self, value: int) -> None:
+        previous = self.slider.blockSignals(True)
+        try:
+            self.slider.setValue(self._value_to_slider(int(value)))
+        finally:
+            self.slider.blockSignals(previous)
+
     def _on_slider_changed(self, slider_value: int) -> None:
         if self._syncing:
             return
@@ -226,7 +255,7 @@ class LinkedIntControl(QWidget):
             return
         self._syncing = True
         try:
-            self.slider.setValue(self._value_to_slider(int(value)))
+            self._sync_slider_from_value(int(value))
         finally:
             self._syncing = False
         self.valueChanged.emit(int(value))
