@@ -133,8 +133,19 @@ def test_extractor_widget_defaults_to_main_overlay_and_can_show_residual(qapp):
     widget.set_waveform(waveform.time_s, waveform.voltage_v, source_name="synthetic")
 
     assert widget.result is not None
-    assert widget.result_table.rowCount() >= 10
+    assert widget.ringing_result is not None
+    assert widget.result_table.rowCount() >= 20
     assert len(widget.figure.axes) == 1
+
+    table_names = {
+        widget.result_table.item(row, 0).text()
+        for row in range(widget.result_table.rowCount())
+    }
+    assert "【尖峰】上升沿初始尖峰电压" in table_names
+    assert "【尖峰】下降沿初始尖峰电压" in table_names
+    assert "【振铃】共享寄生振铃频率" in table_names
+    assert "【振铃】共享衰减速率" in table_names
 
     widget.show_residual_check.setChecked(True)
     assert len(widget.figure.axes) == 2
+    assert len(widget.figure.axes[1].lines) >= 4
