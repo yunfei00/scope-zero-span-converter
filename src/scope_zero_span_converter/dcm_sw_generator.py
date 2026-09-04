@@ -126,6 +126,23 @@ class DcmSwEventTimes:
     freewheel_end_s: float
 
 
+@dataclass(frozen=True)
+class DcmSwDeterministicComponents:
+    """DCM 正向模型的确定性分量。
+
+    生成器和参数提取页的人工重建必须共同使用这一结果，避免维护两套模型。
+    不包含随机噪声；deterministic_voltage_v 即当前模型可解释的完整波形。
+    """
+
+    ideal_voltage_v: np.ndarray
+    spike_component_v: np.ndarray
+    discontinuous_component_v: np.ndarray
+
+    @property
+    def deterministic_voltage_v(self) -> np.ndarray:
+        return self.ideal_voltage_v + self.spike_component_v + self.discontinuous_component_v
+
+
 @dataclass
 class DcmSwWaveform:
     time_s: np.ndarray
@@ -191,19 +208,26 @@ def _damped_cosine(
     return out
 
 
-def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
-    """生成一个已知参数、可重复的单事件 DCM SW 合成波形。"""
+def evaluate_dcm_sw_deterministic_components(
+    time_s: np.ndarray,
+    parameters: DcmSwParameters,
+) -> DcmSwDeterministicComponents:
+    """在给定时间轴上评估生成器唯一的确定性 DCM SW 正向模型。
 
-    parameters.validate()
+    该函数不加入随机噪声，也不重新采样时间轴。参数提取页的人工校正使用它，
+    因而“生成器参数 = 提取器可调参数 = 实际重建模型”。
+    """
+
+    t = np.asarray(time_s, dtype=float)
+    if t.ndim != 1 or len(t) == 0:
+        raise ValueError("time_s 必须是一维非空数组")
+    if not np.all(np.isfinite(t)):
+        raise ValueError("time_s 包含 NaN 或 Inf")
+
     p = parameters
     events = event_times(p)
+    ideal = np.full(len(t), p.baseline_voltage_v, dtype=float)
 
-    points = int(np.floor(p.total_duration_s * p.sample_rate_hz)) + 1
-    t = np.arange(points, dtype=float) / p.sample_rate_hz
-
-    ideal = np.full(points, p.baseline_voltage_v, dtype=float)
-
-    # rise_time=0 时 rise_mask 为空，高电平从 switching_start 采样点直接生效。
     rise_mask = (t >= events.rise_start_s) & (t < events.rise_end_s)
     if np.any(rise_mask):
         ideal[rise_mask] = _half_cosine_transition(
@@ -217,7 +241,6 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
     high_mask = (t >= events.rise_end_s) & (t < events.high_end_s)
     ideal[high_mask] = p.on_high_voltage_v
 
-    # fall_time=0 时 fall_mask 为空，续流低电平从 high_end 采样点直接生效。
     fall_mask = (t >= events.high_end_s) & (t < events.fall_end_s)
     if np.any(fall_mask):
         ideal[fall_mask] = _half_cosine_transition(
@@ -230,11 +253,8 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
 
     freewheel_mask = (t >= events.fall_end_s) & (t < events.freewheel_end_s)
     ideal[freewheel_mask] = p.freewheel_low_voltage_v
-
-    # 断续区理想中心回到基线，实际波形由下面的阻尼谐振分量构成。
     ideal[t >= events.freewheel_end_s] = p.baseline_voltage_v
 
-    # 尖峰幅度直接使用有符号参数，不再由“上升/下降沿”偷偷改变方向。
     rise_spike = _damped_cosine(
         t,
         events.rise_end_s,
@@ -259,17 +279,34 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
         p.discontinuous_decay_rate_per_s,
     )
 
+    return DcmSwDeterministicComponents(
+        ideal_voltage_v=ideal,
+        spike_component_v=spike_component,
+        discontinuous_component_v=discontinuous_component,
+    )
+
+
+def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
+    """生成一个已知参数、可重复的单事件 DCM SW 合成波形。"""
+
+    parameters.validate()
+    p = parameters
+    events = event_times(p)
+
+    points = int(np.floor(p.total_duration_s * p.sample_rate_hz)) + 1
+    t = np.arange(points, dtype=float) / p.sample_rate_hz
+    components = evaluate_dcm_sw_deterministic_components(t, p)
+
     rng = np.random.default_rng(int(p.random_seed))
     noise_component = rng.normal(0.0, p.noise_rms_v, size=points)
-
-    voltage = ideal + spike_component + discontinuous_component + noise_component
+    voltage = components.deterministic_voltage_v + noise_component
 
     return DcmSwWaveform(
         time_s=t,
         voltage_v=voltage,
-        ideal_voltage_v=ideal,
-        spike_component_v=spike_component,
-        discontinuous_component_v=discontinuous_component,
+        ideal_voltage_v=components.ideal_voltage_v,
+        spike_component_v=components.spike_component_v,
+        discontinuous_component_v=components.discontinuous_component_v,
         noise_component_v=noise_component,
         sample_rate_hz=p.sample_rate_hz,
         parameters=p,
@@ -293,8 +330,6 @@ def parameters_from_dict(raw: dict) -> DcmSwParameters:
         raise ValueError("parameters 必须是对象")
     params_raw = dict(params_raw)
 
-    # v1 把下降沿参数定义成“正的幅值大小”，算法内部强制取负。
-    # 读取旧真值文件时自动迁移成 v2 的有符号语义，避免历史文件方向反转。
     if raw.get("model") == LEGACY_MODEL_NAME and "fall_spike_amplitude_v" in params_raw:
         params_raw["fall_spike_amplitude_v"] = -abs(float(params_raw["fall_spike_amplitude_v"]))
 
