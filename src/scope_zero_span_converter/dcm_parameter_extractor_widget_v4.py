@@ -38,8 +38,8 @@ class DcmParameterExtractorWidget(GlobalDcmParameterExtractorWidget):
         manual_layout = QVBoxLayout(self.manual_group)
 
         help_label = QLabel(
-            "当自动导通时间置信度较低时，可直接拖动下面滑块或输入精确数值。"
-            "修改后下降沿、续流区和 DCM 起点会联动移动，拟合曲线与当前匹配度实时刷新。"
+            "只要基础参数提取成功，导通时间即可人工修改，不依赖尖峰/振铃、DCM 谐振或全局联合精修。"
+            "拖动滑块或输入精确数值后，下降沿及后续时刻联动移动，拟合曲线与当前匹配度实时刷新。"
         )
         help_label.setWordWrap(True)
         manual_layout.addWidget(help_label)
@@ -109,11 +109,9 @@ class DcmParameterExtractorWidget(GlobalDcmParameterExtractorWidget):
         self.manual_error = None
         super().run_extraction()
 
-        ready = (
-            self.result is not None
-            and self.ringing_result is not None
-            and self.dcm_result is not None
-        )
+        # 人工导通时间校正只依赖第一阶段基础参数。
+        # 不能因为后续尖峰/振铃或 DCM 谐振拟合失败而把滑块锁死。
+        ready = self.result is not None
         if not hasattr(self, "manual_on_time"):
             return
 
@@ -165,13 +163,7 @@ class DcmParameterExtractorWidget(GlobalDcmParameterExtractorWidget):
         self._manual_timer.start()
 
     def _run_manual_tuning(self) -> None:
-        if (
-            self.time_s is None
-            or self.voltage_v is None
-            or self.result is None
-            or self.ringing_result is None
-            or self.dcm_result is None
-        ):
+        if self.time_s is None or self.voltage_v is None or self.result is None:
             return
 
         self.manual_error = None
@@ -193,11 +185,16 @@ class DcmParameterExtractorWidget(GlobalDcmParameterExtractorWidget):
             return
 
         tuned = self.manual_result
+        mode_text = {
+            "global_refinement": "联合精修模型",
+            "staged_full_model": "完整分阶段模型",
+            "basic_fallback": "基础轨迹模式",
+        }.get(tuned.source, tuned.source)
         self.manual_match_label.setText(
             f"当前人工匹配度：{tuned.matching_score*100:.1f}% | "
             f"下降沿局部 RMSE：{tuned.local_rmse_v*1e3:.6g} mV | "
             f"完整波形 R²：{tuned.full_r_squared:.7f} | "
-            f"全局 RMSE：{tuned.full_rmse_v*1e3:.6g} mV"
+            f"全局 RMSE：{tuned.full_rmse_v*1e3:.6g} mV | {mode_text}"
         )
         self.status_label.setText(
             "人工导通时间实时校正："
