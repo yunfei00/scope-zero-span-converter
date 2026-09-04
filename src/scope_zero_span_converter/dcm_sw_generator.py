@@ -318,6 +318,25 @@ def parameters_to_dict(parameters: DcmSwParameters) -> dict:
     return {"schema_version": 1, "model": MODEL_NAME, "parameters": asdict(parameters)}
 
 
+def _extract_parameter_payload(raw: dict) -> tuple[dict, dict]:
+    """兼容生成器原生 JSON 与 DCM 参数提取页导出的分析 JSON。"""
+
+    if "current_generator_parameters" in raw:
+        params = raw.get("current_generator_parameters")
+        if not isinstance(params, dict):
+            raise ValueError("参数提取结果中 current_generator_parameters 必须是对象")
+        return params, {"model": raw.get("source_model", MODEL_NAME)}
+
+    current_fit = raw.get("current_generator_fit")
+    if isinstance(current_fit, dict) and isinstance(current_fit.get("parameters"), dict):
+        return current_fit["parameters"], {"model": raw.get("source_model", MODEL_NAME)}
+
+    params = raw.get("parameters", raw)
+    if not isinstance(params, dict):
+        raise ValueError("parameters 必须是对象")
+    return params, raw
+
+
 def parameters_from_dict(raw: dict) -> DcmSwParameters:
     if not isinstance(raw, dict):
         raise ValueError("DCM SW 参数 JSON 根节点必须是对象")
@@ -325,13 +344,18 @@ def parameters_from_dict(raw: dict) -> DcmSwParameters:
     if schema_version != 1:
         raise ValueError(f"不支持的 DCM SW 参数 schema_version: {schema_version}")
 
-    params_raw = raw.get("parameters", raw)
-    if not isinstance(params_raw, dict):
-        raise ValueError("parameters 必须是对象")
+    params_raw, metadata = _extract_parameter_payload(raw)
     params_raw = dict(params_raw)
 
-    if raw.get("model") == LEGACY_MODEL_NAME and "fall_spike_amplitude_v" in params_raw:
+    if metadata.get("model") == LEGACY_MODEL_NAME and "fall_spike_amplitude_v" in params_raw:
         params_raw["fall_spike_amplitude_v"] = -abs(float(params_raw["fall_spike_amplitude_v"]))
+
+    allowed = set(DcmSwParameters.__dataclass_fields__)
+    unexpected = sorted(set(params_raw) - allowed)
+    if unexpected:
+        raise ValueError(
+            "参数 JSON 包含当前 DCM SW 模型不支持的字段：" + ", ".join(unexpected)
+        )
 
     parameters = DcmSwParameters(**params_raw)
     parameters.validate()
