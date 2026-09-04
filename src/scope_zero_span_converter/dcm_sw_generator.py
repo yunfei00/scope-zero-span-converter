@@ -21,6 +21,7 @@ class DcmSwParameters:
     - switching_start_s: 上升沿开始时间。
     - on_time_s: 上升沿结束后的高电平稳定保持时间。
     - freewheel_time_s: 下降沿结束后的续流低电平稳定保持时间。
+    - rise_time_s / fall_time_s 允许为 0；0 表示理想瞬时阶跃。
     - DCM 断续谐振从续流阶段结束后开始，并持续衰减到显示窗口结束。
 
     尖峰幅度使用“有符号电压偏移量”：
@@ -69,8 +70,6 @@ class DcmSwParameters:
         ):
             if value < 0:
                 raise ValueError(f"{name}不能 < 0")
-        if self.rise_time_s == 0 or self.fall_time_s == 0:
-            raise ValueError("当前合成模型要求上升沿时间和下降沿时间 > 0")
         if self.sample_rate_hz <= 0:
             raise ValueError("采样率必须 > 0")
         if self.noise_rms_v < 0:
@@ -204,6 +203,7 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
 
     ideal = np.full(points, p.baseline_voltage_v, dtype=float)
 
+    # rise_time=0 时 rise_mask 为空，高电平从 switching_start 采样点直接生效。
     rise_mask = (t >= events.rise_start_s) & (t < events.rise_end_s)
     if np.any(rise_mask):
         ideal[rise_mask] = _half_cosine_transition(
@@ -217,6 +217,7 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
     high_mask = (t >= events.rise_end_s) & (t < events.high_end_s)
     ideal[high_mask] = p.on_high_voltage_v
 
+    # fall_time=0 时 fall_mask 为空，续流低电平从 high_end 采样点直接生效。
     fall_mask = (t >= events.high_end_s) & (t < events.fall_end_s)
     if np.any(fall_mask):
         ideal[fall_mask] = _half_cosine_transition(
