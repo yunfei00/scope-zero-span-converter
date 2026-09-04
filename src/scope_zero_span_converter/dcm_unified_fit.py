@@ -44,8 +44,6 @@ class DcmUnifiedFitResult:
 
 
 def _phase_folded_initial_value(signed_amplitude_v: float, phase_rad: float) -> float:
-    """把内部 A*cos(wt+phi) 拟合结果映射成生成器 phi=0 的 t=0 初始电压。"""
-
     return float(signed_amplitude_v * np.cos(phase_rad))
 
 
@@ -54,12 +52,14 @@ def parameters_from_extraction(
     ringing: DcmRingingExtractionResult | None,
     dcm: DcmDiscontinuousExtractionResult | None,
     global_result: DcmGlobalRefinementResult | None = None,
+    *,
+    time_origin_s: float = 0.0,
 ) -> DcmSwParameters:
     """把自动提取结果映射成生成器原生 DcmSwParameters。
 
-    自动反演内部允许 phase 吸收采样相位/边界定位误差；当前 DCM SW 生成器没有 phase
-    参数，因此映射时使用 A*cos(phi) 作为生成器定义的 t=0 有符号初始电压。
-    noise_rms_v 记录自动估计值，但人工确定性重建不会重新注入随机噪声。
+    ``time_origin_s`` 保存原 CSV 的绝对时间轴起点。例如原始时间为 5~17 us，
+    则 time_origin_s=5 us、total_duration_s=12 us；switching_start_s 等事件时刻
+    继续保留绝对时间，不转换成 0 起点的相对时间。
     """
 
     if global_result is not None:
@@ -67,6 +67,7 @@ def parameters_from_extraction(
             baseline_voltage_v=global_result.baseline_voltage_v,
             on_high_voltage_v=global_result.on_high_voltage_v,
             freewheel_low_voltage_v=global_result.freewheel_low_voltage_v,
+            time_origin_s=float(time_origin_s),
             total_duration_s=basic.total_duration_s,
             switching_start_s=global_result.switching_start_s,
             on_time_s=global_result.on_time_s,
@@ -129,6 +130,7 @@ def parameters_from_extraction(
         baseline_voltage_v=basic.baseline_voltage_v,
         on_high_voltage_v=basic.on_high_voltage_v,
         freewheel_low_voltage_v=basic.freewheel_low_voltage_v,
+        time_origin_s=float(time_origin_s),
         total_duration_s=basic.total_duration_s,
         switching_start_s=basic.switching_start_s,
         on_time_s=basic.on_time_s,
@@ -153,8 +155,6 @@ def evaluate_unified_dcm_fit(
     voltage_v: np.ndarray,
     parameters: DcmSwParameters,
 ) -> DcmUnifiedFitResult:
-    """使用生成器唯一确定性正向模型重建 CSV 并计算实时拟合指标。"""
-
     t = np.asarray(time_s, dtype=float)
     y = np.asarray(voltage_v, dtype=float)
     if t.ndim != 1 or y.ndim != 1 or len(t) != len(y):
@@ -213,8 +213,6 @@ def evaluate_unified_dcm_fit(
 
 
 def parameter_dependency_note(parameters: DcmSwParameters, key: str) -> str | None:
-    """返回当前参数为何暂时不影响波形的明确原因。"""
-
     if key in {"spike_ringing_frequency_hz", "spike_decay_rate_per_s"}:
         if abs(parameters.rise_spike_amplitude_v) + abs(parameters.fall_spike_amplitude_v) <= 1e-15:
             return "当前无效：上升/下降尖峰电压均为 0"
@@ -235,6 +233,7 @@ def _validate_for_time_axis(
 ) -> None:
     values = np.asarray(
         [
+            p.time_origin_s,
             p.baseline_voltage_v,
             p.on_high_voltage_v,
             p.freewheel_low_voltage_v,
@@ -255,6 +254,8 @@ def _validate_for_time_axis(
     )
     if not np.all(np.isfinite(values)):
         raise ValueError("当前参数包含 NaN 或 Inf")
+    if abs(p.time_origin_s - start_s) > max(2.0 * dt, 1e-15):
+        raise ValueError("当前参数的时间轴起点与 CSV time_s 起点不一致")
     if p.switching_start_s < start_s:
         raise ValueError("开关起始时间不能早于 CSV 时间轴起点")
     if min(p.rise_time_s, p.on_time_s, p.fall_time_s, p.freewheel_time_s) < 0:
