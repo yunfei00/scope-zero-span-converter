@@ -9,6 +9,8 @@ import pandas as pd
 
 
 MAX_POINTS = 5_000_000
+MODEL_NAME = "single_event_dcm_sw_v2_signed_spikes"
+LEGACY_MODEL_NAME = "single_event_dcm_sw_v1"
 
 
 @dataclass
@@ -21,8 +23,12 @@ class DcmSwParameters:
     - freewheel_time_s: 下降沿结束后的续流低电平稳定保持时间。
     - DCM 断续谐振从续流阶段结束后开始，并持续衰减到显示窗口结束。
 
-    尖峰幅度按幅值输入：上升沿默认产生正向尖峰，下降沿默认产生负向尖峰。
-    两者都使用同一组寄生振荡频率和指数衰减速率。
+    尖峰幅度使用“有符号电压偏移量”：
+    - rise_spike_amplitude_v > 0 表示向上尖峰，< 0 表示向下尖峰；
+    - fall_spike_amplitude_v > 0 表示向上尖峰，< 0 表示向下尖峰。
+    默认上升沿为 +3 V、下降沿为 -4 V。
+    两者使用同一组寄生振荡频率和指数衰减速率。
+
     noise_rms_v 表示高斯底噪的 RMS（标准差）。
     """
 
@@ -38,7 +44,7 @@ class DcmSwParameters:
     fall_time_s: float = 50e-9
 
     rise_spike_amplitude_v: float = 3.0
-    fall_spike_amplitude_v: float = 4.0
+    fall_spike_amplitude_v: float = -4.0
     spike_ringing_frequency_hz: float = 60e6
     spike_decay_rate_per_s: float = 8e6
 
@@ -227,17 +233,18 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
     # 断续区理想中心回到基线，实际波形由下面的阻尼谐振分量构成。
     ideal[t >= events.freewheel_end_s] = p.baseline_voltage_v
 
+    # 尖峰幅度直接使用有符号参数，不再由“上升/下降沿”偷偷改变方向。
     rise_spike = _damped_cosine(
         t,
         events.rise_end_s,
-        abs(p.rise_spike_amplitude_v),
+        p.rise_spike_amplitude_v,
         p.spike_ringing_frequency_hz,
         p.spike_decay_rate_per_s,
     )
     fall_spike = _damped_cosine(
         t,
         events.fall_end_s,
-        -abs(p.fall_spike_amplitude_v),
+        p.fall_spike_amplitude_v,
         p.spike_ringing_frequency_hz,
         p.spike_decay_rate_per_s,
     )
@@ -270,7 +277,7 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
 
 
 def parameters_to_dict(parameters: DcmSwParameters) -> dict:
-    return {"schema_version": 1, "model": "single_event_dcm_sw_v1", "parameters": asdict(parameters)}
+    return {"schema_version": 1, "model": MODEL_NAME, "parameters": asdict(parameters)}
 
 
 def parameters_from_dict(raw: dict) -> DcmSwParameters:
@@ -279,9 +286,17 @@ def parameters_from_dict(raw: dict) -> DcmSwParameters:
     schema_version = int(raw.get("schema_version", 1))
     if schema_version != 1:
         raise ValueError(f"不支持的 DCM SW 参数 schema_version: {schema_version}")
+
     params_raw = raw.get("parameters", raw)
     if not isinstance(params_raw, dict):
         raise ValueError("parameters 必须是对象")
+    params_raw = dict(params_raw)
+
+    # v1 把下降沿参数定义成“正的幅值大小”，算法内部强制取负。
+    # 读取旧真值文件时自动迁移成 v2 的有符号语义，避免历史文件方向反转。
+    if raw.get("model") == LEGACY_MODEL_NAME and "fall_spike_amplitude_v" in params_raw:
+        params_raw["fall_spike_amplitude_v"] = -abs(float(params_raw["fall_spike_amplitude_v"]))
+
     parameters = DcmSwParameters(**params_raw)
     parameters.validate()
     return parameters
