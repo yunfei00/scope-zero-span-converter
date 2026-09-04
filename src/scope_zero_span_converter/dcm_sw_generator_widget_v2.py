@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QMessageBox,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget import DcmSwGeneratorWidget as BaseDcmSwGeneratorWidget
 from .dcm_sw_waveform_io import load_saved_dcm_sw_waveform, parameter_sidecar_for
 from .logging_utils import get_logger
@@ -19,7 +21,7 @@ LOGGER = get_logger()
 
 
 class DcmSwGeneratorWidget(BaseDcmSwGeneratorWidget):
-    """在现有 DCM SW 生成器上增加历史合成波形加载能力。"""
+    """在现有 DCM SW 生成器上增加历史加载与按需真值分析显示。"""
 
     def _build_action_group(self, parent: QVBoxLayout) -> None:
         load_group = QGroupBox("加载已有合成波形")
@@ -31,7 +33,68 @@ class DcmSwGeneratorWidget(BaseDcmSwGeneratorWidget):
         load_layout.addWidget(load_btn)
 
         parent.addWidget(load_group)
+
+        display_group = QGroupBox("显示设置")
+        display_layout = QVBoxLayout(display_group)
+        self.show_truth_components_check = QCheckBox("显示真值分量分析")
+        self.show_truth_components_check.setChecked(False)
+        self.show_truth_components_check.setToolTip(
+            "默认只显示较大的 DCM SW 主波形；勾选后增加尖峰/振铃、断续谐振和底噪真值分量图。"
+        )
+        self.show_truth_components_check.stateChanged.connect(
+            self._on_truth_components_changed
+        )
+        display_layout.addWidget(self.show_truth_components_check)
+        parent.addWidget(display_group)
+
         super()._build_action_group(parent)
+
+    def _on_truth_components_changed(self) -> None:
+        if self.current_waveform is not None:
+            self._redraw(self.current_waveform)
+
+    def _redraw(self, waveform: DcmSwWaveform) -> None:
+        """默认给主 SW 波形最大显示空间，真值分量按需展开。"""
+
+        show_truth = (
+            hasattr(self, "show_truth_components_check")
+            and self.show_truth_components_check.isChecked()
+        )
+        if show_truth:
+            super()._redraw(waveform)
+            return
+
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        x_us = waveform.time_s * 1e6
+
+        ax.plot(x_us, waveform.voltage_v, linewidth=0.9, label="最终 SW 波形")
+        ax.plot(
+            x_us,
+            waveform.ideal_voltage_v,
+            linewidth=0.8,
+            alpha=0.8,
+            label="理想开关轨迹",
+        )
+
+        event_lines = (
+            waveform.events.rise_start_s,
+            waveform.events.rise_end_s,
+            waveform.events.high_end_s,
+            waveform.events.fall_end_s,
+            waveform.events.freewheel_end_s,
+        )
+        for x_s in event_lines:
+            ax.axvline(x_s * 1e6, linestyle="--", alpha=0.25)
+
+        ax.set_title("DCM 模式 SW 合成波形（已知真值）")
+        ax.set_xlabel("时间 (µs)")
+        ax.set_ylabel("电压 (V)")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+        self.figure.tight_layout()
+        self.canvas.draw()
 
     def load_waveform_dialog(self) -> None:
         csv_path, _ = QFileDialog.getOpenFileName(
