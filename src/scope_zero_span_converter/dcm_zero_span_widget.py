@@ -57,6 +57,7 @@ class DcmZeroSpanWidget(QWidget):
         self.profile = ZeroSpanProfile()
         self.current_waveform: DcmSwWaveform | None = None
         self.current_zero_span: DcmZeroSpanResult | None = None
+        self.current_zero_span_error: str | None = None
         self._syncing = False
         self._parameter_controls: dict[str, LinkedDoubleControl | LinkedIntControl] = {}
 
@@ -393,16 +394,37 @@ class DcmZeroSpanWidget(QWidget):
     # Core recompute / plot
     # ------------------------------------------------------------------
     def _recompute(self) -> None:
+        # DCM 正向模型和 Zero Span 转换是两个独立状态。即使转换配置暂时无效，
+        # 也必须继续允许客户调 DCM 参数并实时刷新上方时域波形。
         try:
             waveform = generate_dcm_sw_waveform(self.parameters)
-            zero = convert_dcm_waveform_to_zero_span(waveform, self.profile)
         except Exception as exc:
-            self.status_label.setText(f"当前参数组合无效：{exc}")
-            LOGGER.debug("DCM → Zero Span 实时联动参数无效: %s", exc)
+            self.current_waveform = None
+            self.current_zero_span = None
+            self.current_zero_span_error = None
+            self._redraw(dcm_error=str(exc))
+            self.status_label.setText(f"当前 DCM 参数组合无效：{exc}")
+            LOGGER.debug("DCM 实时生成参数无效: %s", exc)
             return
 
         self.current_waveform = waveform
+
+        try:
+            zero = convert_dcm_waveform_to_zero_span(waveform, self.profile)
+        except Exception as exc:
+            self.current_zero_span = None
+            self.current_zero_span_error = str(exc)
+            self._redraw(zero_span_error=self.current_zero_span_error)
+            self.status_label.setText(
+                "DCM 波形已按当前参数更新；Zero Span 当前不可计算："
+                f"{self.current_zero_span_error}。"
+                "可继续调整全部 DCM 参数；修正 Center / RBW / 采样率 / 模拟带宽后，下图会自动恢复。"
+            )
+            LOGGER.debug("Zero Span 转换参数无效，但 DCM 继续联动: %s", exc)
+            return
+
         self.current_zero_span = zero
+        self.current_zero_span_error = None
         self._redraw()
         self.status_label.setText(
             "实时联动完成："
@@ -413,17 +435,46 @@ class DcmZeroSpanWidget(QWidget):
             f"VBW={'OFF' if zero.vbw_hz is None else f'{zero.vbw_hz/1e6:.6g} MHz'}"
         )
 
-    def _redraw(self) -> None:
-        if self.current_waveform is None or self.current_zero_span is None:
-            return
-        waveform = self.current_waveform
-        zero = self.current_zero_span
-        x_us = waveform.time_s * 1e6
-
+    def _redraw(
+        self,
+        *,
+        zero_span_error: str | None = None,
+        dcm_error: str | None = None,
+    ) -> None:
         self.figure.clear()
         ax1 = self.figure.add_subplot(211)
         ax2 = self.figure.add_subplot(212, sharex=ax1)
 
+        waveform = self.current_waveform
+        zero = self.current_zero_span
+
+        if waveform is None:
+            ax1.text(
+                0.5,
+                0.5,
+                "DCM 波形当前不可生成" + (f"\n{dcm_error}" if dcm_error else ""),
+                ha="center",
+                va="center",
+                transform=ax1.transAxes,
+            )
+            ax1.set_title("DCM SW 时域波形")
+            ax1.set_ylabel("电压 (V)")
+            ax2.text(
+                0.5,
+                0.5,
+                "等待有效 DCM 波形",
+                ha="center",
+                va="center",
+                transform=ax2.transAxes,
+            )
+            ax2.set_title("Zero Span")
+            ax2.set_xlabel("绝对时间 (µs)")
+            ax2.set_ylabel("功率 (dBm)")
+            self.figure.tight_layout()
+            self.canvas.draw_idle()
+            return
+
+        x_us = waveform.time_s * 1e6
         ax1.plot(x_us, waveform.voltage_v, linewidth=0.9, label="当前 DCM SW")
         ax1.plot(x_us, waveform.ideal_voltage_v, linewidth=0.75, alpha=0.75, label="理想轨迹")
         ax1.set_ylabel("电压 (V)")
@@ -431,16 +482,32 @@ class DcmZeroSpanWidget(QWidget):
         ax1.grid(True, alpha=0.25)
         ax1.legend(loc="best")
 
-        ax2.plot(zero.time_s * 1e6, zero.amplitude_dbm, linewidth=0.9, label="等效 FSW Zero Span")
+        if zero is None:
+            message = "Zero Span 当前不可计算"
+            if zero_span_error:
+                message += f"\n{zero_span_error}"
+            ax2.text(
+                0.5,
+                0.5,
+                message,
+                ha="center",
+                va="center",
+                wrap=True,
+                transform=ax2.transAxes,
+            )
+            ax2.set_xlim(float(x_us[0]), float(x_us[-1]))
+            ax2.set_title("Zero Span（等待有效转换参数）")
+        else:
+            ax2.plot(zero.time_s * 1e6, zero.amplitude_dbm, linewidth=0.9, label="等效 FSW Zero Span")
+            ax2.set_title(
+                f"Zero Span：Center {zero.center_frequency_hz/1e6:.6g} MHz / "
+                f"RBW {zero.rbw_hz/1e6:.6g} MHz"
+            )
+            ax2.grid(True, alpha=0.25)
+            ax2.legend(loc="best")
+
         ax2.set_xlabel("绝对时间 (µs)")
         ax2.set_ylabel("功率 (dBm)")
-        ax2.set_title(
-            f"Zero Span：Center {zero.center_frequency_hz/1e6:.6g} MHz / "
-            f"RBW {zero.rbw_hz/1e6:.6g} MHz"
-        )
-        ax2.grid(True, alpha=0.25)
-        ax2.legend(loc="best")
-
         self.figure.tight_layout()
         self.canvas.draw_idle()
 
