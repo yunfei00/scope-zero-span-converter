@@ -10,6 +10,7 @@ from scope_zero_span_converter.dcm_sw_generator import (
     event_times,
     generate_dcm_sw_waveform,
     load_dcm_sw_parameters,
+    parameters_from_dict,
     save_dcm_sw_parameters,
     save_dcm_sw_waveform,
 )
@@ -45,11 +46,48 @@ def test_default_dcm_sw_phase_truths():
     rise_spike_index = _nearest_index(w.time_s, e.rise_end_s)
     assert w.spike_component_v[rise_spike_index] > 0.9 * p.rise_spike_amplitude_v
 
+    # 默认下降沿尖峰现在使用有符号参数，默认 -4 V。
+    fall_spike_index = _nearest_index(w.time_s, e.fall_end_s)
+    assert p.fall_spike_amplitude_v < 0
+    assert w.spike_component_v[fall_spike_index] < 0
+
     dcm_index = _nearest_index(w.time_s, e.freewheel_end_s)
     assert w.discontinuous_component_v[dcm_index] == pytest.approx(
         p.discontinuous_initial_amplitude_v,
         abs=0.02,
     )
+
+
+def test_signed_spike_amplitude_controls_direction_directly():
+    common = dict(
+        noise_rms_v=0.0,
+        rise_spike_amplitude_v=0.0,
+        spike_ringing_frequency_hz=0.0,
+        spike_decay_rate_per_s=8e6,
+    )
+
+    negative = DcmSwParameters(fall_spike_amplitude_v=-4.0, **common)
+    w_negative = generate_dcm_sw_waveform(negative)
+    idx_negative = _nearest_index(w_negative.time_s, w_negative.events.fall_end_s)
+    assert w_negative.spike_component_v[idx_negative] == pytest.approx(-4.0, abs=0.03)
+
+    positive = DcmSwParameters(fall_spike_amplitude_v=4.0, **common)
+    w_positive = generate_dcm_sw_waveform(positive)
+    idx_positive = _nearest_index(w_positive.time_s, w_positive.events.fall_end_s)
+    assert w_positive.spike_component_v[idx_positive] == pytest.approx(4.0, abs=0.03)
+
+
+def test_legacy_v1_positive_fall_magnitude_migrates_to_negative_signed_value():
+    raw = {
+        "schema_version": 1,
+        "model": "single_event_dcm_sw_v1",
+        "parameters": {
+            **DcmSwParameters().__dict__,
+            "fall_spike_amplitude_v": 4.0,
+        },
+    }
+    loaded = parameters_from_dict(raw)
+    assert loaded.fall_spike_amplitude_v == pytest.approx(-4.0)
 
 
 def test_dcm_sw_noise_is_reproducible_with_seed():
@@ -70,6 +108,7 @@ def test_dcm_sw_parameter_json_round_trip(tmp_path):
     p = DcmSwParameters(
         baseline_voltage_v=1.25,
         on_high_voltage_v=27.0,
+        fall_spike_amplitude_v=-6.5,
         discontinuous_resonance_frequency_hz=7.5e6,
         random_seed=9876,
     )
@@ -79,6 +118,7 @@ def test_dcm_sw_parameter_json_round_trip(tmp_path):
 
     assert loaded.baseline_voltage_v == pytest.approx(1.25)
     assert loaded.on_high_voltage_v == pytest.approx(27.0)
+    assert loaded.fall_spike_amplitude_v == pytest.approx(-6.5)
     assert loaded.discontinuous_resonance_frequency_hz == pytest.approx(7.5e6)
     assert loaded.random_seed == 9876
 
@@ -112,7 +152,8 @@ def test_dcm_sw_waveform_save_contains_truth_components(tmp_path):
     assert fs == pytest.approx(p.sample_rate_hz, rel=1e-9)
 
     metadata = json.loads(parameters_path.read_text(encoding="utf-8"))
-    assert metadata["model"] == "single_event_dcm_sw_v1"
+    assert metadata["model"] == "single_event_dcm_sw_v2_signed_spikes"
+    assert metadata["parameters"]["fall_spike_amplitude_v"] == pytest.approx(-4.0)
     assert metadata["derived_events"]["freewheel_end_s"] == pytest.approx(
         w.events.freewheel_end_s
     )
