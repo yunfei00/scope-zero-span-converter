@@ -63,3 +63,33 @@ def test_manual_on_time_tuning_returns_full_length_reconstruction():
     assert len(tuned.residual_v) == len(waveform.time_s)
     assert 0.0 <= tuned.matching_score <= 1.0
     assert -1.0 <= tuned.full_r_squared <= 1.0
+
+
+def test_manual_on_time_tuning_works_with_basic_result_only():
+    """真实 CSV 后续振铃/DCM 拟合失败时，导通时间人工校正仍必须可用。"""
+
+    params = DcmSwParameters(noise_rms_v=0.01)
+    waveform = generate_dcm_sw_waveform(params)
+    basic = extract_dcm_basic_parameters(waveform.time_s, waveform.voltage_v)
+
+    near_truth = tune_dcm_on_time_manually(
+        waveform.time_s,
+        waveform.voltage_v,
+        basic,
+        None,
+        None,
+        on_time_s=params.on_time_s,
+    )
+    wrong = tune_dcm_on_time_manually(
+        waveform.time_s,
+        waveform.voltage_v,
+        basic,
+        None,
+        None,
+        on_time_s=params.on_time_s + 0.55e-6,
+    )
+
+    assert near_truth.source == "basic_fallback"
+    assert near_truth.matching_score > wrong.matching_score
+    assert near_truth.local_rmse_v < wrong.local_rmse_v
+    assert len(near_truth.reconstruction_v) == len(waveform.time_s)
