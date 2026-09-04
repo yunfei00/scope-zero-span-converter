@@ -32,11 +32,7 @@ def load_saved_dcm_sw_waveform(
     *,
     parameters_path: str | Path | None = None,
 ) -> tuple[DcmSwWaveform, Path]:
-    """加载生成器保存过的 DCM SW CSV，并恢复当时的真值参数。
-
-    CSV 本身作为历史波形真值原样恢复；不会根据当前生成算法重新生成。
-    默认自动寻找 ``<csv_stem>_parameters.json``。如果参数文件被移动，可显式传入。
-    """
+    """加载生成器保存过的 DCM SW CSV，并恢复当时的真值参数。"""
 
     csv_path = Path(csv_path)
     if not csv_path.exists():
@@ -62,10 +58,7 @@ def load_saved_dcm_sw_waveform(
             + "。普通 time_s,voltage_v CSV 请在“波形研究”页面加载。"
         )
 
-    arrays = {
-        column: frame[column].to_numpy(dtype=float)
-        for column in TRUTH_COLUMNS
-    }
+    arrays = {column: frame[column].to_numpy(dtype=float) for column in TRUTH_COLUMNS}
     t = arrays["time_s"]
     if len(t) < 32:
         raise ValueError("DCM SW 波形点数少于 32")
@@ -77,7 +70,8 @@ def load_saved_dcm_sw_waveform(
     dt = np.diff(t)
     if not np.all(dt > 0):
         raise ValueError("DCM SW CSV 的 time_s 必须严格递增")
-    sample_rate_hz = 1.0 / float(np.median(dt))
+    median_dt = float(np.median(dt))
+    sample_rate_hz = 1.0 / median_dt
 
     expected_fs = float(parameters.sample_rate_hz)
     relative_error = abs(sample_rate_hz - expected_fs) / max(abs(expected_fs), 1.0)
@@ -85,6 +79,19 @@ def load_saved_dcm_sw_waveform(
         raise ValueError(
             "CSV 时间轴采样率与参数 JSON 不一致："
             f"CSV≈{sample_rate_hz:g} Hz，JSON={expected_fs:g} Hz"
+        )
+
+    if abs(float(t[0]) - parameters.time_origin_s) > max(2.0 * median_dt, 1e-15):
+        raise ValueError(
+            "CSV 时间轴起点与参数 JSON 不一致："
+            f"CSV={float(t[0]):g} s，JSON={parameters.time_origin_s:g} s"
+        )
+
+    expected_end = parameters.time_end_s
+    if abs(float(t[-1]) - expected_end) > max(2.0 * median_dt, 1e-12):
+        raise ValueError(
+            "CSV 时间轴终点与参数 JSON 不一致："
+            f"CSV={float(t[-1]):g} s，JSON≈{expected_end:g} s"
         )
 
     waveform = DcmSwWaveform(
