@@ -60,3 +60,36 @@ def test_conversion_parameter_change_only_recomputes_zero_span(qapp):
 
     assert np.allclose(before_scope, widget.current_waveform.voltage_v)
     assert not np.allclose(before_zero, widget.current_zero_span.amplitude_dbm)
+
+
+def test_invalid_zero_span_profile_does_not_freeze_dcm_controls(qapp):
+    del qapp
+    widget = DcmZeroSpanWidget()
+    assert widget.current_waveform is not None
+
+    # 1000 MHz 在默认 2 GSa/s / 350 MHz 模拟带宽下不能进行当前 Zero Span 转换。
+    widget.center_mhz.setValue(1000.0)
+    widget._on_profile_changed()
+    widget._recompute()
+
+    assert widget.current_waveform is not None
+    assert widget.current_zero_span is None
+    assert widget.current_zero_span_error is not None
+    assert "不可计算" in widget.status_label.text()
+
+    rise_control = widget._parameter_controls["rise_time_s"]
+    fall_control = widget._parameter_controls["fall_time_s"]
+    assert rise_control.isEnabled()
+    assert rise_control.slider.isEnabled()
+    assert rise_control.spin.isEnabled()
+    assert fall_control.isEnabled()
+    assert fall_control.slider.isEnabled()
+    assert fall_control.spin.isEnabled()
+
+    before_scope = widget.current_waveform.voltage_v.copy()
+    rise_control.spin.setValue(rise_control.value() + 20.0)
+    widget._recompute()
+
+    assert widget.current_waveform is not None
+    assert widget.current_zero_span is None
+    assert not np.allclose(before_scope, widget.current_waveform.voltage_v)
