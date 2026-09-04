@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
+from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters
 from scope_zero_span_converter.dcm_zero_span_widget import DcmZeroSpanWidget
 
 
@@ -25,6 +26,7 @@ def test_zero_span_parameters_are_collapsed_by_default(qapp):
     assert not widget.zero_span_toggle.isChecked()
     assert not widget.zero_span_panel.isVisible()
     assert len(widget._parameter_controls) == 20
+    assert set(widget._parameter_controls) == set(DcmSwParameters.__dataclass_fields__)
 
 
 def test_dcm_slider_value_change_updates_both_waveforms(qapp):
