@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_parameter_extractor_widget_v6 import (
+from scope_zero_span_converter.dcm_parameter_extractor_widget_v7 import (
     DcmParameterExtractorWidget,
 )
 from scope_zero_span_converter.dcm_sw_generator import (
@@ -34,7 +34,9 @@ def test_generator_loads_parameter_extraction_result_json_shape():
         baseline_voltage_v=0.2,
         on_high_voltage_v=11.7,
         freewheel_low_voltage_v=0.9,
-        switching_start_s=1.8e-6,
+        time_origin_s=5e-6,
+        total_duration_s=12e-6,
+        switching_start_s=6.8e-6,
         on_time_s=3.2e-6,
         freewheel_time_s=2.2e-6,
         rise_time_s=35e-9,
@@ -60,6 +62,10 @@ def test_generator_loads_parameter_extraction_result_json_shape():
     loaded = parameters_from_dict(raw)
     assert asdict(loaded) == asdict(expected)
 
+    waveform = generate_dcm_sw_waveform(loaded)
+    assert waveform.time_s[0] == pytest.approx(5e-6, abs=1e-18)
+    assert waveform.time_s[-1] == pytest.approx(17e-6, abs=1e-12)
+
 
 def test_generator_uses_current_fit_parameters_as_fallback():
     expected = DcmSwParameters(random_seed=7)
@@ -74,18 +80,49 @@ def test_generator_uses_current_fit_parameters_as_fallback():
     assert asdict(loaded) == asdict(expected)
 
 
-def test_parameter_extractor_saves_current_reconstruction_csv(qapp, tmp_path):
+def test_old_generator_json_without_time_origin_keeps_zero_origin():
+    old_parameters = asdict(DcmSwParameters())
+    old_parameters.pop("time_origin_s")
+    loaded = parameters_from_dict(
+        {
+            "schema_version": 1,
+            "model": "single_event_dcm_sw_v2_signed_spikes",
+            "parameters": old_parameters,
+        }
+    )
+    assert loaded.time_origin_s == 0.0
+
+
+def test_parameter_extractor_preserves_absolute_time_axis_and_saves_csv(qapp, tmp_path):
     del qapp
-    waveform = generate_dcm_sw_waveform(DcmSwParameters(noise_rms_v=0.01))
+    source_parameters = DcmSwParameters(
+        time_origin_s=5e-6,
+        total_duration_s=12e-6,
+        switching_start_s=7e-6,
+        noise_rms_v=0.01,
+    )
+    waveform = generate_dcm_sw_waveform(source_parameters)
     widget = DcmParameterExtractorWidget()
     widget.set_waveform(
         waveform.time_s,
         waveform.voltage_v,
-        source_name="synthetic-export",
+        source_name="synthetic-export-5-to-17us",
     )
 
     assert widget.current_fit_result is not None
+    assert widget.current_parameters is not None
+    assert widget.current_parameters.time_origin_s == pytest.approx(5e-6, abs=1e-18)
+    assert widget.current_parameters.total_duration_s == pytest.approx(12e-6, abs=1e-12)
     assert widget.save_reconstruction_csv_btn.isEnabled()
+
+    # 参数表必须明确显示原始绝对时间范围。
+    names = [
+        widget.result_table.item(row, 0).text()
+        for row in range(widget.result_table.rowCount())
+        if widget.result_table.item(row, 0) is not None
+    ]
+    assert "【输入】时间轴起点" in names
+    assert "【输入】时间轴终点" in names
 
     output = widget.save_current_csv(tmp_path / "reconstructed")
     assert output.suffix == ".csv"
@@ -99,7 +136,10 @@ def test_parameter_extractor_saves_current_reconstruction_csv(qapp, tmp_path):
         "spike_component_v",
         "discontinuous_component_v",
     ]
-    assert np.allclose(frame["time_s"].to_numpy(), waveform.time_s)
+    saved_time = frame["time_s"].to_numpy()
+    assert saved_time[0] == pytest.approx(5e-6, abs=1e-18)
+    assert saved_time[-1] == pytest.approx(17e-6, abs=1e-12)
+    assert np.allclose(saved_time, waveform.time_s)
     assert np.allclose(
         frame["voltage_v"].to_numpy(),
         widget.current_fit_result.reconstruction_v,
