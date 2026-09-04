@@ -118,8 +118,9 @@ def test_csv_loader_ignores_synthetic_truth_columns(tmp_path):
     time_s, voltage_v = load_waveform_csv(csv_path)
     result = extract_dcm_basic_parameters(time_s, voltage_v)
 
-    assert np.array_equal(time_s, waveform.time_s)
-    assert np.array_equal(voltage_v, waveform.voltage_v)
+    # CSV 文本往返会产生机器精度级的浮点末位差异，应按数值等价比较。
+    assert np.allclose(time_s, waveform.time_s, rtol=0.0, atol=1e-18)
+    assert np.allclose(voltage_v, waveform.voltage_v, rtol=1e-14, atol=1e-14)
     assert result.on_high_voltage_v == pytest.approx(parameters.on_high_voltage_v, abs=0.02)
 
 
