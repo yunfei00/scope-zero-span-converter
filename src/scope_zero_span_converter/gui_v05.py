@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .dcm_parameter_extractor_widget_v5 import DcmParameterExtractorWidget
+from .dcm_parameter_extractor_widget_v6 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v2 import DcmSwGeneratorWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
