@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .dcm_parameter_extractor_widget_v4 import DcmParameterExtractorWidget
+from .dcm_parameter_extractor_widget_v5 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v2 import DcmSwGeneratorWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
@@ -13,7 +13,7 @@ LOGGER = get_logger()
 
 
 class MainWindow(WaveformResearchMainWindow):
-    """v0.4 波形研究界面 + DCM SW 真值生成、参数反演与人工校正。"""
+    """v0.4 波形研究界面 + DCM SW 真值生成、参数反演与全参数人工校正。"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -30,7 +30,7 @@ class MainWindow(WaveformResearchMainWindow):
 
         self.dcm_extractor_tab = DcmParameterExtractorWidget(self)
         self.tabs.insertTab(2, self.dcm_extractor_tab, "DCM 参数提取")
-        LOGGER.info("DCM SW generator and staged/global/manual parameter extractor tabs ready")
+        LOGGER.info("DCM SW generator and full editable parameter extractor tabs ready")
 
     def _enable_ideal_edge_controls(self) -> None:
         """允许上升/下降时间输入 0 ns；0 表示理想瞬时阶跃。
