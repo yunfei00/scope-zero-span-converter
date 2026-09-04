@@ -18,7 +18,9 @@ class DcmSwParameters:
     """单个 DCM 开关事件的可重复合成参数。
 
     时间定义：
-    - switching_start_s: 上升沿开始时间。
+    - time_origin_s: 显示时间轴起点；例如 5~17 us 波形的起点为 5 us。
+    - total_duration_s: 显示时间跨度；例如 5~17 us 的跨度为 12 us。
+    - switching_start_s: 上升沿开始的绝对时间。
     - on_time_s: 上升沿结束后的高电平稳定保持时间。
     - freewheel_time_s: 下降沿结束后的续流低电平稳定保持时间。
     - rise_time_s / fall_time_s 允许为 0；0 表示理想瞬时阶跃。
@@ -37,6 +39,7 @@ class DcmSwParameters:
     on_high_voltage_v: float = 12.0
     freewheel_low_voltage_v: float = 1.0
 
+    time_origin_s: float = 0.0
     total_duration_s: float = 20e-6
     switching_start_s: float = 2e-6
     on_time_s: float = 3e-6
@@ -57,11 +60,17 @@ class DcmSwParameters:
     sample_rate_hz: float = 2e9
     random_seed: int = 12345
 
+    @property
+    def time_end_s(self) -> float:
+        return self.time_origin_s + self.total_duration_s
+
     def validate(self) -> None:
         if self.total_duration_s <= 0:
             raise ValueError("总显示时长必须 > 0")
-        if self.switching_start_s < 0:
-            raise ValueError("开关起始时间不能 < 0")
+        if not np.isfinite(self.time_origin_s):
+            raise ValueError("时间轴起点必须是有限数值")
+        if self.switching_start_s < self.time_origin_s:
+            raise ValueError("开关起始时间不能早于时间轴起点")
         for name, value in (
             ("导通时间", self.on_time_s),
             ("续流时间", self.freewheel_time_s),
@@ -90,10 +99,11 @@ class DcmSwParameters:
             + self.fall_time_s
             + self.freewheel_time_s
         )
-        if event_end >= self.total_duration_s:
+        if event_end >= self.time_end_s:
             raise ValueError(
                 "总显示时长不足：必须覆盖开关起始 + 上升沿 + 导通 + 下降沿 + 续流，"
-                f"当前事件结束于 {event_end:g} s"
+                f"当前显示范围={self.time_origin_s:g}~{self.time_end_s:g} s，"
+                f"事件结束于 {event_end:g} s"
             )
 
         highest_frequency = max(
@@ -128,11 +138,7 @@ class DcmSwEventTimes:
 
 @dataclass(frozen=True)
 class DcmSwDeterministicComponents:
-    """DCM 正向模型的确定性分量。
-
-    生成器和参数提取页的人工重建必须共同使用这一结果，避免维护两套模型。
-    不包含随机噪声；deterministic_voltage_v 即当前模型可解释的完整波形。
-    """
+    """DCM 正向模型的确定性分量。"""
 
     ideal_voltage_v: np.ndarray
     spike_component_v: np.ndarray
@@ -212,11 +218,7 @@ def evaluate_dcm_sw_deterministic_components(
     time_s: np.ndarray,
     parameters: DcmSwParameters,
 ) -> DcmSwDeterministicComponents:
-    """在给定时间轴上评估生成器唯一的确定性 DCM SW 正向模型。
-
-    该函数不加入随机噪声，也不重新采样时间轴。参数提取页的人工校正使用它，
-    因而“生成器参数 = 提取器可调参数 = 实际重建模型”。
-    """
+    """在给定时间轴上评估生成器唯一的确定性 DCM SW 正向模型。"""
 
     t = np.asarray(time_s, dtype=float)
     if t.ndim != 1 or len(t) == 0:
@@ -294,7 +296,7 @@ def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
     events = event_times(p)
 
     points = int(np.floor(p.total_duration_s * p.sample_rate_hz)) + 1
-    t = np.arange(points, dtype=float) / p.sample_rate_hz
+    t = p.time_origin_s + np.arange(points, dtype=float) / p.sample_rate_hz
     components = evaluate_dcm_sw_deterministic_components(t, p)
 
     rng = np.random.default_rng(int(p.random_seed))
@@ -407,6 +409,8 @@ def save_dcm_sw_waveform(
         payload["generated"] = {
             "points": waveform.points,
             "sample_rate_hz": waveform.sample_rate_hz,
+            "time_origin_s": waveform.parameters.time_origin_s,
+            "time_end_s": waveform.parameters.time_end_s,
             "csv_file": csv_path.name,
         }
         parameters_path.write_text(
