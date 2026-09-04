@@ -10,7 +10,6 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -19,7 +18,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -33,6 +31,7 @@ from .dcm_sw_generator import (
     save_dcm_sw_parameters,
     save_dcm_sw_waveform,
 )
+from .linked_parameter_control import LinkedDoubleControl, LinkedIntControl
 from .logging_utils import get_logger
 from .plotting import configure_matplotlib_chinese
 
@@ -49,12 +48,12 @@ class DcmSwGeneratorWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.current_waveform: DcmSwWaveform | None = None
-        self._parameter_widgets: list[QDoubleSpinBox | QSpinBox] = []
         self._updating_controls = False
 
+        # 拖滑块时数值框立即更新，波形用短防抖避免连续重绘把 GUI 拖慢。
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
-        self._auto_timer.setInterval(180)
+        self._auto_timer.setInterval(80)
         self._auto_timer.timeout.connect(self._generate_silent)
 
         self._build_ui()
@@ -87,7 +86,7 @@ class DcmSwGeneratorWidget(QWidget):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         splitter.addWidget(right)
-        splitter.setSizes([500, 1040])
+        splitter.setSizes([620, 920])
 
         self.figure = Figure(figsize=(10, 7))
         self.canvas = FigureCanvas(self.figure)
@@ -97,7 +96,7 @@ class DcmSwGeneratorWidget(QWidget):
 
         self.model_label = QLabel(
             "模型：单个 DCM 开关事件。上升沿 → 高电平导通 → 下降沿 → 续流低电平 → 断续阻尼谐振。"
-            "当前先建立可重复真值，后续再根据真实 DCM SW 数据修正模型。"
+            "左侧每个参数均为“滑块粗调 + 数值框精调”，两者实时双向联动。"
         )
         self.model_label.setWordWrap(True)
         right_layout.addWidget(self.model_label)
@@ -112,30 +111,50 @@ class DcmSwGeneratorWidget(QWidget):
         maximum: float,
         decimals: int,
         step: float,
-    ) -> QDoubleSpinBox:
-        box = QDoubleSpinBox()
-        box.setRange(minimum, maximum)
-        box.setDecimals(decimals)
-        box.setSingleStep(step)
-        box.setKeyboardTracking(False)
-        box.valueChanged.connect(self._schedule_generate)
-        self._parameter_widgets.append(box)
-        return box
+        *,
+        slider_min: float,
+        slider_max: float,
+    ) -> LinkedDoubleControl:
+        control = LinkedDoubleControl(
+            minimum,
+            maximum,
+            decimals,
+            step,
+            slider_min=slider_min,
+            slider_max=slider_max,
+        )
+        control.valueChanged.connect(self._schedule_generate)
+        return control
 
-    def _int_spin(self, minimum: int, maximum: int) -> QSpinBox:
-        box = QSpinBox()
-        box.setRange(minimum, maximum)
-        box.setKeyboardTracking(False)
-        box.valueChanged.connect(self._schedule_generate)
-        self._parameter_widgets.append(box)
-        return box
+    def _int_spin(
+        self,
+        minimum: int,
+        maximum: int,
+        *,
+        slider_min: int,
+        slider_max: int,
+    ) -> LinkedIntControl:
+        control = LinkedIntControl(
+            minimum,
+            maximum,
+            slider_min=slider_min,
+            slider_max=slider_max,
+        )
+        control.valueChanged.connect(self._schedule_generate)
+        return control
 
     def _build_level_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("电平参数")
         form = QFormLayout(group)
-        self.baseline_v = self._double_spin(-10000.0, 10000.0, 6, 0.1)
-        self.high_v = self._double_spin(-10000.0, 10000.0, 6, 0.1)
-        self.freewheel_v = self._double_spin(-10000.0, 10000.0, 6, 0.1)
+        self.baseline_v = self._double_spin(
+            -10000.0, 10000.0, 6, 0.1, slider_min=-20.0, slider_max=20.0
+        )
+        self.high_v = self._double_spin(
+            -10000.0, 10000.0, 6, 0.1, slider_min=-100.0, slider_max=500.0
+        )
+        self.freewheel_v = self._double_spin(
+            -10000.0, 10000.0, 6, 0.1, slider_min=-100.0, slider_max=500.0
+        )
         form.addRow("基线电压 (V)", self.baseline_v)
         form.addRow("开通高电平电压 (V)", self.high_v)
         form.addRow("续流低电平电压 (V)", self.freewheel_v)
@@ -144,12 +163,24 @@ class DcmSwGeneratorWidget(QWidget):
     def _build_timing_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("时间参数")
         form = QFormLayout(group)
-        self.total_us = self._double_spin(0.001, 1e9, 6, 1.0)
-        self.start_us = self._double_spin(0.0, 1e9, 6, 0.1)
-        self.on_us = self._double_spin(0.0, 1e9, 6, 0.1)
-        self.freewheel_us = self._double_spin(0.0, 1e9, 6, 0.1)
-        self.rise_ns = self._double_spin(0.001, 1e9, 6, 1.0)
-        self.fall_ns = self._double_spin(0.001, 1e9, 6, 1.0)
+        self.total_us = self._double_spin(
+            0.001, 1e9, 6, 1.0, slider_min=1.0, slider_max=100.0
+        )
+        self.start_us = self._double_spin(
+            0.0, 1e9, 6, 0.1, slider_min=0.0, slider_max=50.0
+        )
+        self.on_us = self._double_spin(
+            0.0, 1e9, 6, 0.1, slider_min=0.0, slider_max=30.0
+        )
+        self.freewheel_us = self._double_spin(
+            0.0, 1e9, 6, 0.1, slider_min=0.0, slider_max=30.0
+        )
+        self.rise_ns = self._double_spin(
+            0.001, 1e9, 6, 1.0, slider_min=1.0, slider_max=500.0
+        )
+        self.fall_ns = self._double_spin(
+            0.001, 1e9, 6, 1.0, slider_min=1.0, slider_max=500.0
+        )
         form.addRow("总显示时长 (µs)", self.total_us)
         form.addRow("开关起始时间 (µs)", self.start_us)
         form.addRow("导通时间 (µs)", self.on_us)
@@ -161,15 +192,28 @@ class DcmSwGeneratorWidget(QWidget):
     def _build_spike_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("开关沿尖峰 / 寄生振铃")
         form = QFormLayout(group)
-        self.rise_spike_v = self._double_spin(0.0, 10000.0, 6, 0.1)
-        self.fall_spike_v = self._double_spin(0.0, 10000.0, 6, 0.1)
-        self.spike_freq_mhz = self._double_spin(0.0, 100000.0, 6, 1.0)
-        self.spike_decay_per_us = self._double_spin(0.0, 1e6, 6, 0.1)
-        form.addRow("上升沿尖峰幅度 (V)", self.rise_spike_v)
-        form.addRow("下降沿尖峰幅度 (V)", self.fall_spike_v)
+
+        # 尖峰采用有符号电压偏移：正值向上，负值向下。
+        self.rise_spike_v = self._double_spin(
+            -10000.0, 10000.0, 6, 0.1, slider_min=-50.0, slider_max=50.0
+        )
+        self.fall_spike_v = self._double_spin(
+            -10000.0, 10000.0, 6, 0.1, slider_min=-50.0, slider_max=50.0
+        )
+        self.spike_freq_mhz = self._double_spin(
+            0.0, 100000.0, 6, 1.0, slider_min=0.0, slider_max=500.0
+        )
+        self.spike_decay_per_us = self._double_spin(
+            0.0, 1e6, 6, 0.1, slider_min=0.0, slider_max=50.0
+        )
+        form.addRow("上升沿尖峰电压 (V)", self.rise_spike_v)
+        form.addRow("下降沿尖峰电压 (V)", self.fall_spike_v)
         form.addRow("尖峰寄生振荡频率 (MHz)", self.spike_freq_mhz)
         form.addRow("尖峰衰减速率 α (1/µs)", self.spike_decay_per_us)
-        note = QLabel("尖峰模型：A·exp(-αt)·cos(2πft)。上升沿取正幅值，下降沿取负幅值。")
+        note = QLabel(
+            "尖峰模型：A·exp(-αt)·cos(2πft)。A 为有符号值：+ 表示向上，- 表示向下。"
+            "默认上升沿 +3 V、下降沿 -4 V。"
+        )
         note.setWordWrap(True)
         form.addRow(note)
         parent.addWidget(group)
@@ -177,13 +221,19 @@ class DcmSwGeneratorWidget(QWidget):
     def _build_discontinuous_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("DCM 断续区谐振")
         form = QFormLayout(group)
-        self.dcm_amp_v = self._double_spin(-10000.0, 10000.0, 6, 0.1)
-        self.dcm_freq_mhz = self._double_spin(0.0, 100000.0, 6, 0.1)
-        self.dcm_decay_per_us = self._double_spin(0.0, 1e6, 6, 0.05)
+        self.dcm_amp_v = self._double_spin(
+            -10000.0, 10000.0, 6, 0.1, slider_min=-50.0, slider_max=50.0
+        )
+        self.dcm_freq_mhz = self._double_spin(
+            0.0, 100000.0, 6, 0.1, slider_min=0.0, slider_max=100.0
+        )
+        self.dcm_decay_per_us = self._double_spin(
+            0.0, 1e6, 6, 0.05, slider_min=0.0, slider_max=20.0
+        )
         form.addRow("断续谐振初始振幅 (V)", self.dcm_amp_v)
         form.addRow("断续谐振频率 (MHz)", self.dcm_freq_mhz)
         form.addRow("断续谐振衰减速率 α (1/µs)", self.dcm_decay_per_us)
-        note = QLabel("续流结束后，以基线电压为中心生成阻尼谐振。")
+        note = QLabel("续流结束后，以基线电压为中心生成阻尼谐振；初始振幅同样允许正负。")
         note.setWordWrap(True)
         form.addRow(note)
         parent.addWidget(group)
@@ -191,9 +241,15 @@ class DcmSwGeneratorWidget(QWidget):
     def _build_sampling_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("示波器采样 / 噪声")
         form = QFormLayout(group)
-        self.noise_mv = self._double_spin(0.0, 1e6, 6, 1.0)
-        self.sample_gsa = self._double_spin(0.000001, 1000.0, 6, 0.1)
-        self.random_seed = self._int_spin(0, 2_147_483_647)
+        self.noise_mv = self._double_spin(
+            0.0, 1e6, 6, 1.0, slider_min=0.0, slider_max=500.0
+        )
+        self.sample_gsa = self._double_spin(
+            0.000001, 1000.0, 6, 0.1, slider_min=0.1, slider_max=20.0
+        )
+        self.random_seed = self._int_spin(
+            0, 2_147_483_647, slider_min=0, slider_max=100_000
+        )
         form.addRow("示波器底噪 RMS (mV)", self.noise_mv)
         form.addRow("采样率 (GSa/s)", self.sample_gsa)
         form.addRow("随机种子", self.random_seed)
@@ -298,7 +354,7 @@ class DcmSwGeneratorWidget(QWidget):
     # ------------------------------------------------------------------
     # Generation / plotting
     # ------------------------------------------------------------------
-    def _schedule_generate(self) -> None:
+    def _schedule_generate(self, *_args) -> None:
         if self._updating_controls or not self.auto_generate_check.isChecked():
             return
         self._auto_timer.start()
