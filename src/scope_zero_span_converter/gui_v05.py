@@ -5,6 +5,7 @@ import numpy as np
 from .dcm_parameter_extractor_widget_v7 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
+from .dcm_zero_span_widget import DcmZeroSpanWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
 
@@ -13,12 +14,12 @@ LOGGER = get_logger()
 
 
 class MainWindow(WaveformResearchMainWindow):
-    """v0.4 波形研究界面 + DCM SW 真值生成、参数反演与全参数人工校正。"""
+    """波形研究 + DCM SW 生成/反演 + DCM → Zero Span 实时联动。"""
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(
-            "Scope Zero Span Converter v0.4 - 波形研究 / DCM SW 生成 / 参数提取"
+            "Scope Zero Span Converter - 波形研究 / DCM SW / Zero Span 联动"
         )
 
         self.dcm_generator_tab = DcmSwGeneratorWidget(self)
@@ -30,7 +31,10 @@ class MainWindow(WaveformResearchMainWindow):
 
         self.dcm_extractor_tab = DcmParameterExtractorWidget(self)
         self.tabs.insertTab(2, self.dcm_extractor_tab, "DCM 参数提取")
-        LOGGER.info("DCM SW generator and full editable parameter extractor tabs ready")
+
+        self.dcm_zero_span_tab = DcmZeroSpanWidget(self)
+        self.tabs.insertTab(3, self.dcm_zero_span_tab, "DCM → Zero Span")
+        LOGGER.info("DCM generator, extractor and Zero Span linked page ready")
 
     def _enable_ideal_edge_controls(self) -> None:
         for control in (
