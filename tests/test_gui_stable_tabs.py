@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
+from scope_zero_span_converter import __version__
 from scope_zero_span_converter.gui_v05 import MainWindow
 
 
@@ -37,4 +38,4 @@ def test_main_window_uses_stable_tab_ids(qapp):
         assert window.index_for_tab_id(tab_id) == index
 
     assert window.tabs.tabText(window.tabs.indexOf(window.dcm_analysis_tab)) == "DCM 综合分析"
-    assert "0.8.0.dev0" in window.windowTitle()
+    assert __version__ in window.windowTitle()
