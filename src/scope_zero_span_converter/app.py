@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 from .app_state import AppState, load_state, save_state
 from .gui_v05 import MainWindow
 from .logging_utils import get_logger
+from .workspace import apply_dcm_analysis_workspace, collect_dcm_analysis_workspace
 
 
 LOGGER = get_logger()
@@ -20,6 +21,10 @@ def main() -> int:
     if state is not None:
         try:
             window.apply_config(state.config)
+
+            dcm_workspace = state.workspace.get("dcm_analysis")
+            if isinstance(dcm_workspace, dict):
+                apply_dcm_analysis_workspace(window.dcm_analysis_tab, dcm_workspace)
 
             restored = False
             if state.selected_tab_id:
@@ -50,6 +55,11 @@ def main() -> int:
                     selected_tab=current_index,
                     selected_tab_id=window.tab_id_for_index(current_index),
                     selected_template=window.template_combo.currentText(),
+                    workspace={
+                        "dcm_analysis": collect_dcm_analysis_workspace(
+                            window.dcm_analysis_tab
+                        )
+                    },
                 )
             )
             LOGGER.info("已保存最近使用状态")
