@@ -42,6 +42,7 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
     def __init__(self, parent=None) -> None:
         # Parent construction dynamically draws the spectrum. These commercial
         # controls are built afterwards, so draw hooks must tolerate None state.
+        self.zero_span_info_label: QLabel | None = None
         self.peak_table: QTableWidget | None = None
         self.marker_info_label: QLabel | None = None
         self._current_peaks: list[SpectrumPeak] = []
@@ -55,12 +56,74 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         self._time_marker_defaults_initialized = False
 
         super().__init__(parent)
+        self._build_zero_span_info_card()
         self._build_peak_table()
         self._build_time_marker_controls()
+        self._update_zero_span_info_card()
         self._refresh_peak_table()
         self._update_marker_info()
         self._sync_time_marker_controls_to_waveform()
         self._update_time_marker_info()
+
+    # ------------------------------------------------------------------
+    # Zero Span Center / RBW information card
+    # ------------------------------------------------------------------
+    def _build_zero_span_info_card(self) -> None:
+        group = QGroupBox("Zero Span 测量窗口（Center / RBW）")
+        layout = QVBoxLayout(group)
+        label = QLabel()
+        label.setWordWrap(True)
+        label.setToolTip(
+            "这里显示的是 FSW Zero Span 的固定中心频率和 RBW 接收带宽，"
+            "不是普通扫频的 Start/Stop 频率范围。通带边界按 Center±RBW/2 展示。"
+        )
+        layout.addWidget(label)
+        self.zero_span_info_label = label
+
+        insert_index = max(0, self.left_layout.count() - 1)
+        self.left_layout.insertWidget(insert_index, group)
+
+    def _update_zero_span_info_card(self) -> None:
+        label = self.zero_span_info_label
+        profile = getattr(self, "profile", None)
+        if label is None:
+            return
+        if profile is None:
+            label.setText("等待 Zero Span 参数。")
+            return
+
+        center_hz = float(profile.center_frequency_hz)
+        rbw_hz = float(profile.rbw_hz)
+        lower_hz = center_hz - rbw_hz / 2.0
+        upper_hz = center_hz + rbw_hz / 2.0
+        vbw_text = "OFF"
+        if profile.vbw_enabled:
+            vbw_text = f"{profile.vbw_hz/1e6:.6g} MHz"
+
+        waveform = self.current_waveform
+        sample_text = "Fs / Nyquist：等待有效 DCM 波形"
+        if waveform is not None and len(waveform.time_s) >= 2:
+            dt = np.diff(np.asarray(waveform.time_s, dtype=float))
+            positive_dt = dt[np.isfinite(dt) & (dt > 0)]
+            if len(positive_dt):
+                sample_rate_hz = 1.0 / float(np.median(positive_dt))
+                sample_text = (
+                    f"Fs={sample_rate_hz/1e9:.6g} GSa/s | "
+                    f"Nyquist={sample_rate_hz/2e6:.6g} MHz"
+                )
+
+        valid = self.current_zero_span is not None and not self.current_zero_span_error
+        status = "有效" if valid else "不可计算"
+        lines = [
+            f"状态：{status} | Span=0 Hz | Detector=RMS | RBW Filter=Gaussian",
+            f"Center={center_hz/1e6:.6g} MHz | RBW={rbw_hz/1e6:.6g} MHz | "
+            f"3 dB 接收带宽≈{lower_hz/1e6:.6g}~{upper_hz/1e6:.6g} MHz",
+            f"VBW={vbw_text} | Scope Analog BW={profile.scope_analog_bandwidth_hz/1e6:.6g} MHz | "
+            f"{sample_text}",
+        ]
+        if self.current_zero_span_error:
+            lines.append(f"原因：{self.current_zero_span_error}")
+        label.setText("\n".join(lines))
 
     # ------------------------------------------------------------------
     # Frequency peak table / marker
@@ -452,6 +515,7 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
             zero_span_error=zero_span_error,
             dcm_error=dcm_error,
         )
+        self._update_zero_span_info_card()
         self._sync_time_marker_controls_to_waveform()
         self._update_time_marker_info()
         self._draw_time_marker_overlays()
