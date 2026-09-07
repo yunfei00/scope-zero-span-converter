@@ -16,6 +16,12 @@ from .axis import (
 from .markers import SpectrumMarker, spectrum_marker_at_frequency
 from .peaks import SpectrumPeak, find_spectrum_peaks
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
+from .time_markers import (
+    TimeMarker,
+    TimeMarkerDelta,
+    time_marker_at_time,
+    time_marker_delta,
+)
 from .zoom import ZoomBounds, ZoomState, ZoomTarget, normalized_bounds
 
 __all__ = [
@@ -25,6 +31,10 @@ __all__ = [
     "find_spectrum_peaks",
     "SpectrumMarker",
     "spectrum_marker_at_frequency",
+    "TimeMarker",
+    "TimeMarkerDelta",
+    "time_marker_at_time",
+    "time_marker_delta",
     "fixed_ticks",
     "nice_step",
     "automatic_bounds",
