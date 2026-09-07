@@ -55,13 +55,38 @@ def test_load_waveform_rejects_duplicate_timestamp(tmp_path):
         load_waveform(waveform_path)
 
 
-def test_fsw_resample_rejects_sweep_longer_than_scope_record():
-    t = np.arange(10, dtype=float) * 1e-9  # 0 ... 9 ns
+def test_fsw_resample_rejects_sweep_one_full_dt_beyond_last_scope_sample():
+    # Real Scope support is 0 ... 9 ns. A nominal N/Fs=10 ns duration would be
+    # one full sample interval beyond the last measured point and must NOT be
+    # treated as harmless tolerance; doing so would silently repeat the tail.
+    t = np.arange(10, dtype=float) * 1e-9  # 0 ... 9 ns, dt = 1 ns
     power = np.linspace(1.0, 2.0, len(t))
     env = np.linspace(0.1, 0.2, len(t))
 
     with pytest.raises(ValueError, match="FSW Sweep Time 超出示波器实际记录时长"):
         resample_to_fsw_axis(t, power, env, 101, 10e-9)
+
+
+def test_fsw_resample_accepts_only_floating_point_scale_endpoint_tolerance():
+    t = np.arange(10, dtype=float) * 1e-9
+    power = np.linspace(1.0, 2.0, len(t))
+    env = np.linspace(0.1, 0.2, len(t))
+    available = float(t[-1] - t[0])
+    rounding_only = available + available * 5e-10
+
+    out_t, out_power, out_env, resampled = resample_to_fsw_axis(
+        t,
+        power,
+        env,
+        19,
+        rounding_only,
+    )
+
+    assert resampled is True
+    assert len(out_t) == len(out_power) == len(out_env) == 19
+    assert out_t[-1] == pytest.approx(rounding_only)
+    # The tolerated excess is numerical-scale only, many orders smaller than dt.
+    assert out_t[-1] - available < 1e-6 * (t[1] - t[0])
 
 
 def test_fsw_resample_accepts_sweep_inside_scope_record():
