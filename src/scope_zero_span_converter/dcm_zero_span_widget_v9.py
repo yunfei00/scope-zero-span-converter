@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
-
+from .dcm_analysis.axis import major_tick_step, nice_step
 from .dcm_zero_span_widget_v8 import DcmZeroSpanWidget as AutoFrequencyDcmZeroSpanWidget
 
 
@@ -18,27 +17,13 @@ class DcmZeroSpanWidget(AutoFrequencyDcmZeroSpanWidget):
     - 下一次正常 DCM/FFT 更新继续自动适配，并再次回填最新实际值。
     """
 
+    # 兼容历史内部调用；正式实现已迁移到 dcm_analysis.axis。
     @staticmethod
     def _major_tick_step(ticks, minimum: float, maximum: float) -> float | None:
-        values = np.asarray(ticks, dtype=float)
-        values = values[np.isfinite(values)]
-        if len(values) < 2:
-            return None
-
-        # MaxNLocator 有时会给出视窗边界之外的候选刻度；步长本身仍然有效。
-        differences = np.diff(np.sort(np.unique(values)))
-        differences = differences[np.isfinite(differences) & (differences > 0)]
-        if len(differences) == 0:
-            return None
-
-        step = float(np.median(differences))
-        if not math.isfinite(step) or step <= 0:
-            return None
-        return step
+        del minimum, maximum
+        return major_tick_step(ticks)
 
     def _sync_frequency_axis_controls_from_plot(self, ax) -> None:
-        # 父类构造早期频域控件尚未创建，直接跳过；构造完成后的正常 redraw
-        # 会再次调用本函数并完成首次回填。
         required = (
             "freq_x_min",
             "freq_x_max",
@@ -57,12 +42,12 @@ class DcmZeroSpanWidget(AutoFrequencyDcmZeroSpanWidget):
         if x_max <= x_min or y_max <= y_min:
             return
 
-        x_step = self._major_tick_step(ax.get_xticks(), x_min, x_max)
-        y_step = self._major_tick_step(ax.get_yticks(), y_min, y_max)
+        x_step = major_tick_step(ax.get_xticks())
+        y_step = major_tick_step(ax.get_yticks())
         if x_step is None:
-            x_step = self._nice_frequency_step((x_max - x_min) / 10.0)
+            x_step = nice_step((x_max - x_min) / 10.0)
         if y_step is None:
-            y_step = self._nice_frequency_step((y_max - y_min) / 10.0)
+            y_step = nice_step((y_max - y_min) / 10.0)
 
         controls_and_values = (
             (self.freq_x_min, x_min),
