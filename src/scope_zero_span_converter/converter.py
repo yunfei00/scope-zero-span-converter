@@ -14,6 +14,7 @@ from . import __version__
 from .comparison import ComparisonResult, compare_zero_span, load_fsw_zero_span_csv
 from .config import AppConfig
 from .plotting import configure_matplotlib_chinese
+from .waveform_quality import WaveformQualityReport, analyze_time_axis, require_fft_safe
 
 
 EPS_W = 1e-30
@@ -34,6 +35,7 @@ class ConversionResult:
     fsw_sweep_time_s: float | None
     fsw_trace_points: int | None
     resampled_to_fsw_axis: bool
+    waveform_quality: WaveformQualityReport
     output_csv: Path | None = None
     output_plot: Path | None = None
     output_metadata: Path | None = None
@@ -105,7 +107,11 @@ def extract_fsw_settings(meta: dict) -> dict:
     }
 
 
-def load_waveform(path: str | Path):
+def load_waveform_with_quality(
+    path: str | Path,
+) -> tuple[np.ndarray, np.ndarray, float, WaveformQualityReport]:
+    """Load a waveform and enforce the shared FFT/Zero Span time-axis policy."""
+
     df = pd.read_csv(path)
     if {"time_s", "voltage_v"}.issubset(df.columns):
         t = pd.to_numeric(df["time_s"], errors="coerce").to_numpy(float)
@@ -122,15 +128,22 @@ def load_waveform(path: str | Path):
     if len(t) < 32:
         raise ValueError("有效波形点数少于 32")
 
+    # 必须在排序前分析原始时间顺序，这样才能把“导出顺序异常”和真正的
+    # 重复/缺点/非均匀采样区分开。时间倒序可告警后排序继续；会破坏 FFT
+    # 数学前提的问题则直接拒绝进入 Zero Span 主链路。
+    quality = analyze_time_axis(t)
+    require_fft_safe(quality)
+
     order = np.argsort(t)
     t = t[order]
     v = v[order]
-    dt = np.diff(t)
-    dt = dt[dt > 0]
-    if len(dt) == 0:
-        raise ValueError("无法从 time_s 推导采样率")
-    sample_interval_s = float(np.median(dt))
-    sample_rate_hz = 1.0 / sample_interval_s
+    return t, v, quality.sample_rate_hz, quality
+
+
+def load_waveform(path: str | Path):
+    """Backward-compatible waveform loader returning time, voltage and Fs."""
+
+    t, v, sample_rate_hz, _quality = load_waveform_with_quality(path)
     return t, v, sample_rate_hz
 
 
@@ -186,21 +199,36 @@ def resample_to_fsw_axis(
     points: int | None,
     sweep_time_s: float | None,
 ):
+    scope_time_s = np.asarray(scope_time_s, dtype=float)
+    power_w = np.asarray(power_w, dtype=float)
+    envelope_v_rms = np.asarray(envelope_v_rms, dtype=float)
+
+    if not (
+        len(scope_time_s) == len(power_w) == len(envelope_v_rms)
+        and len(scope_time_s) >= 2
+    ):
+        raise ValueError("FSW 重采样输入长度不一致或有效点数少于 2")
+
     t_rel = scope_time_s - scope_time_s[0]
     if points is None or points < 2 or sweep_time_s is None or sweep_time_s <= 0:
         return t_rel, power_w, envelope_v_rms, False
 
-    target_t = np.linspace(0.0, sweep_time_s, points)
+    available_duration_s = float(t_rel[-1])
+    requested_sweep_s = float(sweep_time_s)
+    tolerance_s = max(abs(available_duration_s), abs(requested_sweep_s), 1e-15) * 1e-9
+    if requested_sweep_s > available_duration_s + tolerance_s:
+        raise ValueError(
+            "FSW Sweep Time 超出示波器实际记录时长："
+            f"Sweep={requested_sweep_s:.12g} s, "
+            f"Scope={available_duration_s:.12g} s。"
+            "为避免静默尾值外推，请重新采集更长的示波器波形或缩短 FSW Sweep Time。"
+        )
+
+    target_t = np.linspace(0.0, requested_sweep_s, points)
     return (
         target_t,
-        np.interp(target_t, t_rel, power_w, left=power_w[0], right=power_w[-1]),
-        np.interp(
-            target_t,
-            t_rel,
-            envelope_v_rms,
-            left=envelope_v_rms[0],
-            right=envelope_v_rms[-1],
-        ),
+        np.interp(target_t, t_rel, power_w),
+        np.interp(target_t, t_rel, envelope_v_rms),
         True,
     )
 
@@ -267,7 +295,9 @@ def convert(
         config, meta_settings
     )
 
-    t, voltage_v, sample_rate_hz = load_waveform(waveform_path)
+    t, voltage_v, sample_rate_hz, waveform_quality = load_waveform_with_quality(
+        waveform_path
+    )
     nyquist_hz = sample_rate_hz / 2.0
     top_hz = center_hz + rbw_hz / 2.0
 
@@ -326,6 +356,7 @@ def convert(
         fsw_sweep_time_s=meta_settings.get("sweep_time_s"),
         fsw_trace_points=meta_settings.get("points"),
         resampled_to_fsw_axis=resampled,
+        waveform_quality=waveform_quality,
     )
 
 
@@ -382,6 +413,7 @@ def _write_conversion_metadata(
             "fsw_sweep_time_s": result.fsw_sweep_time_s,
             "fsw_trace_points": result.fsw_trace_points,
             "resampled_to_fsw_axis": result.resampled_to_fsw_axis,
+            "time_axis_quality": asdict(result.waveform_quality),
         },
         "algorithm": {
             "digital_downconversion": True,
