@@ -16,6 +16,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set release version from tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ($version.StartsWith("v")) {
+            $version = $version.Substring(1)
+          }
+          "__version__ = `"$version`"" | Set-Content -Encoding utf8 src/scope_zero_span_converter/_version.py
+          Write-Host "Packaging software version $version"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -34,6 +44,7 @@ jobs:
         run: |
           python -m compileall src
           pytest -q
+          python -c "import scope_zero_span_converter as p; print('release version:', p.__version__); assert p.__version__ == '${{ github.ref_name }}'.lstrip('v')"
 
       - name: Build Windows application
         shell: pwsh
@@ -80,14 +91,21 @@ jobs:
 
             Windows x64 客户版本。
 
+            ### 主要工作区
+            - 波形研究：加载 Scope CSV、ROI 框选、截取与 Zero Span 联动
+            - DCM SW 生成器：参数化 DCM 开关波形生成与真值保存
+            - DCM 参数提取：分阶段识别、全局精修、重建与残差分析
+            - DCM 综合分析：时域、幅度频谱、相位频谱、Zero Span 四视图联动
+            - 批量转换：目录扫描、批量转换、误差汇总
+
             ### 使用方法
             1. 下载并解压 `ScopeZeroSpanConverter-${{ github.ref_name }}-Windows-x64.zip`
             2. 双击 `ScopeZeroSpanConverter.exe`
-            3. 单次转换：选择 waveform.csv 和 metadata.json，可选导入 FSW Zero Span 实测 CSV
+            3. 根据任务进入对应工作区；单次 Zero Span 转换可选择 waveform.csv 和 metadata.json，并可选 FSW Zero Span 实测 CSV
             4. 可按需要加载/保存 JSON 配置或客户模板
-            5. 批量转换功能请在“批量转换”页签中使用
+            5. 批量任务请在“批量转换”页签中使用
 
-            ### 默认测量基线
+            ### 默认 Zero Span 测量基线
             - Center: 200 MHz
             - Span: 0 Hz
             - RBW: 10 MHz
