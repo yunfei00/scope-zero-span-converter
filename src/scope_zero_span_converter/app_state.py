@@ -11,7 +11,9 @@ from .templates import user_data_directory
 @dataclass
 class AppState:
     config: AppConfig
+    # selected_tab 保留用于兼容旧 app_state.json；新版本优先使用 selected_tab_id。
     selected_tab: int = 0
+    selected_tab_id: str = ""
     selected_template: str = ""
 
 
@@ -35,6 +37,7 @@ def load_state() -> AppState | None:
         return AppState(
             config=config_from_dict(config_raw),
             selected_tab=int(raw.get("selected_tab", 0)),
+            selected_tab_id=str(raw.get("selected_tab_id", "")),
             selected_template=str(raw.get("selected_template", "")),
         )
     except Exception:
@@ -44,8 +47,10 @@ def load_state() -> AppState | None:
 def save_state(state: AppState) -> Path:
     path = state_path()
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "config": asdict(state.config),
+        # 两者同时保存：ID 是正式字段，index 仅为旧版本回退兼容。
+        "selected_tab_id": state.selected_tab_id,
         "selected_tab": state.selected_tab,
         "selected_template": state.selected_template,
     }
