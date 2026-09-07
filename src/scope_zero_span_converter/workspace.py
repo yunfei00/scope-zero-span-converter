@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, fields
 from typing import Any
 
+from PySide6.QtWidgets import QSplitter
+
 from .dcm_sw_generator import DcmSwParameters
 from .dcm_zero_span_link import ZeroSpanProfile
 
@@ -56,6 +58,15 @@ def _set_spin(control, value: Any) -> None:
         control.blockSignals(previous)
 
 
+def _main_splitter(widget) -> QSplitter | None:
+    splitters = widget.findChildren(QSplitter)
+    if not splitters:
+        return None
+    # DCM analysis currently owns one main horizontal splitter. Keeping this
+    # lookup here avoids modifying the legacy base widget solely for persistence.
+    return splitters[0]
+
+
 def collect_dcm_analysis_workspace(widget) -> dict[str, Any]:
     """Serialize stable DCM-analysis working state without waveform/zoom data."""
 
@@ -69,6 +80,7 @@ def collect_dcm_analysis_workspace(widget) -> dict[str, Any]:
     marker_b_enable = getattr(widget, "time_marker_b_enable", None)
     marker_a_time = getattr(widget, "time_marker_a_time_us", None)
     marker_b_time = getattr(widget, "time_marker_b_time_us", None)
+    splitter = _main_splitter(widget)
 
     return {
         "schema_version": _WORKSPACE_SCHEMA_VERSION,
@@ -82,6 +94,9 @@ def collect_dcm_analysis_workspace(widget) -> dict[str, Any]:
             "axis_settings_expanded": bool(
                 getattr(getattr(widget, "axis_display_toggle", None), "isChecked", lambda: False)()
             ),
+        },
+        "layout": {
+            "main_splitter_sizes": splitter.sizes() if splitter is not None else [],
         },
         "markers": {
             "frequency_hz": getattr(widget, "selected_marker_frequency_hz", None),
@@ -139,6 +154,18 @@ def apply_dcm_analysis_workspace(widget, raw: Any) -> bool:
         axis_toggle = getattr(widget, "axis_display_toggle", None)
         if axis_toggle is not None and "axis_settings_expanded" in panels:
             axis_toggle.setChecked(bool(panels["axis_settings_expanded"]))
+
+    layout = raw.get("layout")
+    if isinstance(layout, dict):
+        sizes = layout.get("main_splitter_sizes")
+        splitter = _main_splitter(widget)
+        if splitter is not None and isinstance(sizes, list) and len(sizes) >= 2:
+            try:
+                clean_sizes = [max(0, int(value)) for value in sizes]
+                if any(clean_sizes):
+                    splitter.setSizes(clean_sizes)
+            except (TypeError, ValueError):
+                pass
 
     markers = raw.get("markers")
     if isinstance(markers, dict):
