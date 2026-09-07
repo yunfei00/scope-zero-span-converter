@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import math
-
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
+from .dcm_analysis.axis import automatic_bounds
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_zero_span_widget_v6 import DcmZeroSpanWidget as ZoomableDcmZeroSpanWidget
 
@@ -29,18 +28,13 @@ class DcmZeroSpanWidget(ZoomableDcmZeroSpanWidget):
 
     @staticmethod
     def _automatic_y_bounds(amplitude_dbv: np.ndarray) -> tuple[float, float]:
-        finite = np.asarray(amplitude_dbv, dtype=float)
-        finite = finite[np.isfinite(finite)]
-        if len(finite) == 0:
-            return -200.0, 20.0
-
-        low = float(np.min(finite))
-        high = float(np.max(finite))
-        if math.isclose(low, high):
-            margin = max(abs(high) * 0.05, 5.0)
-        else:
-            margin = max((high - low) * 0.05, 2.0)
-        return low - margin, high + margin
+        # 兼容历史调用；正式策略已迁移到 dcm_analysis.axis。
+        return automatic_bounds(
+            amplitude_dbv,
+            fallback=(-200.0, 20.0),
+            relative_margin=0.05,
+            minimum_margin=2.0,
+        )
 
     def _apply_frequency_auto_axis(self, ax) -> None:
         frequency_hz = np.asarray(self.current_spectrum_frequency_hz, dtype=float)
@@ -59,7 +53,7 @@ class DcmZeroSpanWidget(ZoomableDcmZeroSpanWidget):
             x_max = x_min + 1.0
         y_min, y_max = self._automatic_y_bounds(amplitude_dbv)
 
-        # 覆盖 v5 在绘图阶段应用的固定 locator / limits，恢复自动显示。
+        # 覆盖固定 locator / limits，恢复当前 FFT 数据的自动显示。
         ax.xaxis.set_major_locator(MaxNLocator(nbins=10))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=10))
         ax.set_autoscalex_on(True)
@@ -69,8 +63,7 @@ class DcmZeroSpanWidget(ZoomableDcmZeroSpanWidget):
         ax.grid(True, which="major", alpha=0.25)
 
     def _on_frequency_axis_changed(self, *_args) -> None:
-        # 手工输入只影响当前一次重绘。父类会清除临时频域 zoom，并按输入的
-        # Min/Max/Step 重画；下一次正常重绘时本标志已恢复 False，继续自动适配。
+        # 手工输入只影响当前一次重绘。下一次正常数据重绘继续自动适配。
         self._frequency_manual_redraw_once = True
         try:
             super()._on_frequency_axis_changed(*_args)
@@ -80,7 +73,5 @@ class DcmZeroSpanWidget(ZoomableDcmZeroSpanWidget):
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
         super()._draw_frequency_panel(ax, waveform)
 
-        # 手工坐标输入触发的这一帧保留 v5 的固定范围；所有其它正常重绘
-        # 都覆盖回自动频域坐标。
         if not self._frequency_manual_redraw_once:
             self._apply_frequency_auto_axis(ax)
