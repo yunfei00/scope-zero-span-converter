@@ -1,344 +1,100 @@
 # Scope Zero Span Converter
 
-示波器时域波形研究、区域截取与 Zero Span 联动转换工具。
+示波器时域波形研究、DCM SW 建模/参数识别、幅相频域分析与 Zero Span 联动转换工具。
 
-> 当前重点已经从“继续提高频谱恢复精度”切换到 **原始波形研究、DCM SW 波形生成与参数提取**。现有 Zero Span 算法先作为稳定基线保留，后续有需要再继续研究。
+> 当前稳定客户版本：**v0.7.0**  
+> 当前 `main` 开发版本：**v0.8.0.dev0**（商业化整改阶段）
 
-当前开发版本：**v0.4.0**。
+## 产品定位
 
-## 研究文档
-
-面向研究人员的 DCM SW 参数化波形生成理论说明：
-
-- [DCM 模式开关电源 SW 节点参数化波形生成模型说明](docs/DCM_SW_WAVEFORM_GENERATION_THEORY.md)
-
-文档说明模型的物理背景、时间定义、理想边沿、有限边沿、尖峰/寄生振铃、DCM 断续谐振、指数衰减、示波器底噪、采样率、真值分量及模型适用边界，并给出从合成波形走向真实波形参数提取的推荐研究路线。
-
-## v0.4 核心研究闭环
+本项目最初用于把示波器时域波形离线转换为类似频谱仪 Zero Span 的功率-时间曲线。随着 DCM SW 波形研究能力完善，目前已经形成一个完整的 DCM 信号分析工作台：
 
 ```text
-已知参数
-   ↓
-DCM SW 生成器
-   ↓
-合成 time_s, voltage_v CSV
-   ↓
-DCM 参数提取器（只读取 time_s / voltage_v）
-   ↓
-第一阶段：基础电平 / 时间参数
-   ↓
-第二阶段：上升/下降尖峰 + 高频寄生振铃
-   ↓
-第三阶段：DCM 断续谐振 + 最终噪声残差
-   ↓
-第四阶段：完整模型全局联合精修
-   ↓
-提取参数 / 重建波形 / RMSE / R²
-   ↓
-提取结果 vs 生成真值
-   ↓
-最终迁移到真实示波器 CSV
+Scope waveform / DCM parameters
+          │
+          ├── 波形研究 / ROI
+          ├── DCM SW 参数化生成
+          ├── DCM 参数提取与联合精修
+          ├── DCM 时域 / 幅度频谱 / 相位频谱 / Zero Span 四视图联动
+          └── 批量 Zero Span 转换与 FSW 实测对比
 ```
 
-同时保留通用原始波形研究流程：
+## GUI 工作区
+
+当前 GUI 有 5 个主要页面：
+
+1. **波形研究**
+   - 加载 `waveform.csv`、`metadata.json`
+   - 可选加载 FSW Zero Span 实测 CSV
+   - 鼠标框选 ROI、数值设置 ROI
+   - 放大、恢复、清除选区
+   - 保存 ROI CSV 与 `.region.json`
+   - ROI 改变后 Zero Span 自动联动
+
+2. **DCM SW 生成器**
+   - 单个 DCM 开关事件参数化建模
+   - 绝对时间轴起点、总时长、采样率、噪声、随机种子
+   - 高/低电平、上升/下降沿、导通/续流时间
+   - 上升/下降尖峰、寄生振铃频率/衰减
+   - DCM 断续谐振幅度/频率/衰减
+   - 滑块粗调 + 数值框精调
+   - 保存/加载 CSV + 参数 JSON
+   - 可查看理想轨迹与真值分量
+
+3. **DCM 参数提取**
+   - 输入仅要求 `time_s,voltage_v`
+   - 基础电平与时间参数提取
+   - 开关沿尖峰/寄生振铃提取
+   - DCM 断续谐振提取
+   - 全局联合精修
+   - RMSE / R² / 残差 / 置信度
+   - 导出参数 JSON 与当前重建 CSV
+   - 保留原始 CSV 的绝对时间轴起点
+
+4. **DCM 综合分析**
 
 ```text
-原始 waveform.csv
-        ↓
-加载完整时域波形
-        ↓
-在图上鼠标框选研究区域 ROI
-        ↓
-查看起点 / 终点 / 时长 / 点数
-        ↓
-放大到选区 / 恢复全波形 / 重新框选
-        ↓
-保存截取后的 waveform CSV
-        ↓
-下方 Zero Span 转换波形按当前 ROI 自动重新计算
+┌──────────────────────┬──────────────────────┐
+│ DCM SW 时域           │ DCM 幅度频谱         │
+│ Voltage vs Time      │ dBV vs Frequency    │
+├──────────────────────┼──────────────────────┤
+│ Zero Span            │ DCM 相位频谱         │
+│ dBm vs Time          │ Phase vs Frequency  │
+└──────────────────────┴──────────────────────┘
 ```
 
-## 波形研究功能
+   - 全部 DCM 模型参数实时联动
+   - 时域与 Zero Span 保持同一绝对时间轴
+   - 幅度/相位来自同一次去直流 + Hann 窗的单边复数 FFT
+   - 幅度频谱显示 Zero Span Center 与 RBW 区域
+   - 幅度与相位共享 Frequency X 轴
+   - 时域、幅度频谱支持鼠标框选放大，`Space` 逐级返回
+   - 幅度频谱正常数据刷新时自动适配坐标，并回填实际坐标值
+   - 可手工输入频域 X/Y Min / Max / Step 调整当前显示
 
-### 1. 鼠标框选研究区域
+5. **批量转换**
+   - 递归扫描目录
+   - 自动发现 waveform + metadata 任务
+   - 单任务失败后继续
+   - 独立输出目录
+   - `batch_summary.csv` / `batch_summary.json`
+   - 可汇总 FSW 对比误差
 
-加载 `waveform.csv` 后，在上方原始波形图中按住鼠标左键横向拖动，即可得到一个研究区域。
+## Zero Span 算法基线
 
-工具自动记录：
-
-- ROI 起始时间
-- ROI 结束时间
-- ROI 时长
-- ROI 点数
-- 原始波形中的起始/结束索引
-
-左侧也可以直接输入起点和终点，通过数值精确设置 ROI。
-
-### 2. 放大、恢复和重新截取
-
-支持：
-
-- `放大到选区`
-- `恢复全波形`
-- `清除选区`
-- 恢复全波形后重新拖动选择新的 ROI
-- Matplotlib 自带 Zoom / Pan / Home 工具栏
-
-因此研究过程不是“一次裁剪后就固定”，可以反复定位和调整。
-
-### 3. 保存截取数据
-
-点击 `保存截取波形 CSV` 后输出标准：
-
-```csv
-time_s,voltage_v
-...
-```
-
-默认还会生成同名：
+当前稳定基线：
 
 ```text
-xxx_region.region.json
-```
-
-用于记录：
-
-- 原 waveform 文件
-- 起止时间
-- 持续时间
-- 点数
-- 原始索引
-- 保存后的时间轴是否从 0 开始
-
-可选择：
-
-- 保留原始时间轴
-- 保存时将截取区域时间轴重新从 0 开始
-
-### 4. 下方转换波形实时联动
-
-默认勾选：
-
-```text
-研究区域变化后自动更新下方转换波形
-```
-
-ROI 改变后：
-
-```text
-当前 ROI waveform
-        ↓
-现有 Center / RBW / VBW 算法
-        ↓
-下方功率-时间曲线自动刷新
-```
-
-研究模式下 **不会把 ROI 强行重采样回原始 FSW Sweep Time / Points**，下方时间轴始终对应当前选中的真实波形区域。
-
-## DCM SW 参数化波形生成器
-
-`DCM SW 生成器`页面不需要加载真实数据即可直接生成单个 DCM 开关事件。
-
-当前支持：
-
-- 基线电压
-- 开通高电平电压
-- 续流低电平电压
-- 总显示时长
-- 开关起始时间
-- 导通时间
-- 续流时间
-- 上升沿时间 / 下降沿时间（允许 `0 ns` 表示理想阶跃）
-- 上升沿尖峰电压 / 下降沿尖峰电压（支持正负方向）
-- 尖峰寄生振荡频率和衰减速率
-- DCM 断续谐振初始振幅、频率和衰减速率
-- 示波器底噪 RMS
-- 采样率
-- 固定随机种子
-
-主要参数采用“滑块粗调 + 数值框精调”双向联动。
-
-生成后的波形可保存为 CSV 和参数真值 JSON，也可重新加载历史合成波形，或者直接发送到“波形研究”页面进行 ROI 研究。
-
-默认仅显示大的最终 SW 主波形；需要算法研究时可勾选“显示真值分量分析”，查看尖峰/振铃、DCM 断续谐振和底噪等独立分量。
-
-完整理论见：
-
-- [DCM 模式开关电源 SW 节点参数化波形生成模型说明](docs/DCM_SW_WAVEFORM_GENERATION_THEORY.md)
-
-## DCM 参数提取与联合精修
-
-`DCM 参数提取` 页面用于从只有：
-
-```csv
-time_s,voltage_v
-...
-```
-
-的单个 DCM SW 事件中反演模型参数。
-
-为了保证真值验证有效，提取器 **只读取 `time_s` 和 `voltage_v`**。即使合成 CSV 中还带有：
-
-```text
-ideal_voltage_v
-spike_component_v
-discontinuous_component_v
-noise_component_v
-```
-
-也不会读取这些真值列，更不会读取对应参数 JSON。
-
-### 第一阶段：基础电平与时间参数
-
-当前自动提取：
-
-- 采样率与总显示时长
-- 基线电压
-- 开通高电平电压
-- 续流低电平电压
-- 开关起始时间
-- 上升时间（模型完整边沿）
-- 上升时间（10%~90%）
-- 导通时间
-- 下降时间（模型完整边沿）
-- 下降时间（10%~90%）
-- 续流时间
-- 基线区估计噪声 RMS
-
-第一阶段采用“稳健统计 + 主边沿检测 + 阈值穿越 + 当前半余弦边沿模型反解”的方法。其中 10%~90% 时间和生成模型中的完整边沿时间分别显示，不混为同一个指标。
-
-### 第二阶段：开关沿尖峰与高频寄生振铃
-
-从：
-
-```text
-Residual 1 = CSV 实测波形 - 基础理想轨迹
-```
-
-继续自动提取：
-
-- 上升沿有符号初始尖峰电压
-- 下降沿有符号初始尖峰电压
-- 共享寄生振铃频率
-- 共享寄生振铃衰减速率
-- 上升沿 / 下降沿内部拟合相位
-- 局部拟合 R² 与置信度
-
-当前生成模型假设上下沿共享寄生振铃频率和衰减速率，但允许独立幅度与拟合相位。
-
-### 第三阶段：DCM 断续谐振与最终残差
-
-从：
-
-```text
-Residual 2 = Residual 1 - 开关沿尖峰/振铃拟合分量
-```
-
-继续提取：
-
-- DCM 断续谐振初始振幅
-- DCM 谐振频率
-- DCM 指数衰减速率
-- 内部拟合相位
-- DCM 局部 R² / 置信度
-- 全部确定性分量扣除后的最终残差 robust RMS
-- 最终残差整体 RMSE
-
-逐阶段结果不会被后续阶段静默覆盖，便于研究每一步的误差来源。
-
-### 第四阶段：全局联合精修
-
-前三阶段加载 CSV 后自动完成。由于第四阶段计算量明显更大，默认 **不自动运行**；需要时点击：
-
-```text
-运行全局联合精修（较慢）
-```
-
-联合精修以前三阶段结果为初值，只在有限范围内调整：
-
-- 开关起始时间
-- 上升时间
-- 导通时间
-- 下降时间
-- 续流时间
-- 寄生振铃频率 / 衰减
-- DCM 谐振频率 / 衰减
-
-对于每组非线性候选参数，电平与阻尼振铃正交系数通过加权线性最小二乘直接求最优值。
-
-优化目标不仅考虑整条波形，同时提高上下沿和 DCM 瞬态区域权重，避免长时间稳定区掩盖关键瞬态。
-
-联合精修完成后显示：
-
-- 联合精修后的完整参数集
-- 精修前 RMSE
-- 精修后 RMSE
-- RMSE 改善百分比
-- 完整波形 R²
-- 联合精修最终残差 robust RMS
-- 迭代轮数、模型评估次数和收敛状态
-
-主图会叠加：
-
-```text
-CSV 实测波形
-基础理想轨迹
-基础 + 尖峰/寄生振铃
-基础 + 尖峰/寄生振铃 + DCM
-全局联合精修重建波形
-```
-
-勾选 `显示逐阶段拟合残差 / 分量` 后，可以同时查看各阶段分量、逐层残差以及联合精修后的最终残差。
-
-### 参数结果 JSON
-
-结果导出当前使用：
-
-```text
-dcm_parameter_identification_v4
-```
-
-分层保存：
-
-```text
-basic
-edge_ringing
-discontinuous_resonance
-global_refinement
-```
-
-因此研究人员既能看到逐阶段可解释结果，也能看到最终联合精修结果。
-
-### 置信度与提示
-
-页面会给出阶段置信度，并在以下情况提示：
-
-- 主高低电平相对于噪声分离度不足
-- 续流低电平与基线过于接近
-- 无法明确找到续流结束 / DCM 断续区开始点
-- 边沿采样点过少
-- 振铃周期数不足
-- 尖峰或 DCM 振幅接近底噪
-- 局部拟合 R² 偏低
-- 全局联合精修改善很小
-- 最终残差仍明显高于基线区噪声
-
-当前仍假设 CSV 中包含一个主要 DCM 开关事件。多周期自动选择与真实示波器波形鲁棒性验证是下一阶段重点。
-
-## 当前 Zero Span 算法基线
-
-```text
-示波器时域 waveform
-        ↓
-Center Frequency 数字下变频
-        ↓
-Gaussian RBW
-        ↓
-RMS 功率检波
-        ↓
-VBW 时域平滑
-        ↓
-time_s, amplitude_dbm
+real RF waveform
+  → remove DC
+  → reflect padding
+  → 2*x*exp(-j2πfc t)
+  → Gaussian complex baseband RBW filter
+  → Vrms = abs(complex envelope)/sqrt(2)
+  → power = Vrms² / impedance
+  → optional causal first-order VBW lowpass
+  → optional FSW sweep-time/points resample
+  → dBm + calibration
 ```
 
 默认参数：
@@ -354,38 +110,35 @@ RBW Filter = Gaussian
 Scope BW   = 350 MHz
 ```
 
-这个算法当前先保持稳定，不作为 v0.4 的主要研究方向。
-
-## GUI
-
-安装：
-
-```bash
-pip install -e .
-```
-
-运行：
-
-```bash
-scope-zero-span-gui
-```
-
-GUI 当前四个主要页面：
+物理边界检查：
 
 ```text
-波形研究
-DCM SW 生成器
-DCM 参数提取
-批量转换
+Center + RBW/2 < Nyquist
+Center + RBW/2 <= Scope analog bandwidth
+Span = 0
 ```
 
-其中前三个页面构成当前 v0.4 的主要研究链路。
+## FSW 实测对比
 
-## 输入文件
+可导入 FSW Zero Span 实测 CSV，并计算：
 
-### Waveform
+- MAE
+- RMSE
+- Bias
+- Max Absolute Error
+- Correlation
 
-推荐格式：
+标准 FSW CSV：
+
+```csv
+time_s,amplitude_dbm
+```
+
+同时兼容 `level_dbm` / `power_dbm` 幅度列名。
+
+## 输入格式
+
+推荐示波器波形格式：
 
 ```csv
 time_s,voltage_v
@@ -393,124 +146,65 @@ time_s,voltage_v
 ...
 ```
 
-### Metadata
+`metadata.json` 用于读取 FSW Center / Span / RBW / VBW / Sweep Time / Points 等信息。
 
-`metadata.json` 用于当前 Zero Span 联动转换时读取 Center / RBW / VBW 等参数。
+## 安装与运行
 
-### FSW 实测 CSV
+开发环境：
 
-原有完整转换功能继续支持可选：
-
-```csv
-time_s,amplitude_dbm
-...
+```bash
+pip install -e .
+scope-zero-span-gui
 ```
 
-## JSON 配置
+CLI：
 
-默认：
-
-```text
-configs/default.json
+```bash
+scope-zero-span-converter convert waveform.csv metadata.json
+scope-zero-span-converter batch --config configs/default.json
+scope-zero-span-converter init-config converter-config.json
 ```
 
-v0.4 新增：
+Windows 客户版使用 GitHub Release 中的 `ScopeZeroSpanConverter-vX.Y.Z-Windows-x64.zip`，解压后运行 `ScopeZeroSpanConverter.exe`。
 
-```json
-"waveform_research": {
-  "enabled": true,
-  "extraction_mode": "manual",
-  "selection_start_s": null,
-  "selection_end_s": null,
-  "auto_update_conversion": true,
-  "time_unit": "us",
-  "min_points": 32,
-  "save_region_metadata": true,
-  "reset_saved_time_to_zero": false
-}
-```
+## 版本规则
 
-继续保持：
+版本只从 `src/scope_zero_span_converter/_version.py` 读取。
 
-```text
-schema_version = 1
-```
+- `main` 使用下一开发版本，例如 `0.8.0.dev0`
+- Release workflow 在 tag 构建时把 `vX.Y.Z` 注入 `_version.py`
+- Python 包版本、GUI 标题、导出 metadata 和 Release 版本保持一致
 
-因此 v0.1 / v0.2 / v0.3 JSON 缺少 `waveform_research` 时，会自动使用默认值。
+## 当前限制
 
-## v0.3 已保留能力
+- DCM 参数提取当前主要针对**单个主要 DCM 开关事件**；多周期与复杂拓扑属于后续验证范围。
+- 幅度频谱是当前记录的 Hann-window 单边 FFT（dBV/bin 语义），不能直接等同于频谱仪 trace。
+- 相位频谱是当前 FFT 记录参考下的 wrapped phase（-180°~+180°），不是网络分析仪意义上的绝对器件相位。
+- Zero Span 算法依赖均匀采样时域数据；v0.8 商业化整改将增加输入采样完整性/时间轴质量检查。
+- DSO-X 3034A 的 350 MHz 模拟带宽是物理限制，不能通过提高数字采样率恢复超出模拟前端带宽的 RF 内容。
 
-- 单次完整 Zero Span 转换
-- FSW 实测 CSV 对比
-- MAE / RMSE / Bias / 最大误差 / 相关系数
-- `conversion_metadata.json`
-- `comparison_to_fsw.csv`
-- 配置模板
-- 最近使用状态
-- 应用日志
-- 批量转换
-- `batch_summary.csv / json`
-- Windows Tag 自动 Release
+## 商业化整改
 
-## Windows 自动发布
+`v0.8.x` 的重点不是继续增加图表，而是产品化收口：
 
-推送 `v*` Tag 后自动：
+- 版本与发布一致性
+- 稳定 GUI 入口与页签 ID
+- 清理版本化 Widget 继承链
+- 输入数据质量检查
+- FFT / Phase 物理定义与有效性提示
+- FSW Sweep 越界保护
+- 完整 Workspace 状态
+- Rotating Log / 诊断包
+- Marker / Peak Table
+- 后台计算 / Progress / Cancel
+- Installer / VersionInfo / License / 客户手册
 
-1. Windows Python 3.11 测试；
-2. PyInstaller onedir 打包；
-3. 生成 Windows x64 ZIP；
-4. 自动创建 GitHub Release。
+详细计划见 `docs/COMMERCIALIZATION_ROADMAP.md`。
 
-## 版本演进
+## 研究文档
 
-### v0.1
+- [DCM 模式开关电源 SW 节点参数化波形生成模型说明](docs/DCM_SW_WAVEFORM_GENERATION_THEORY.md)
 
-Zero Span 算法、JSON、GUI、CLI、Windows 自动发布。
+## License / 商业分发
 
-### v0.2
-
-FSW 实测对比、误差指标、转换元数据。
-
-### v0.3
-
-批量转换、客户配置模板、日志、最近使用状态。
-
-### v0.4
-
-当前阶段：
-
-- 原始波形研究
-- ROI 手动框选
-- 数值起止时间
-- ROI 放大/恢复/重新选择
-- 截取波形保存
-- 截取参数记录
-- ROI 与下方 Zero Span 转换联动
-- DCM SW 参数化真值波形生成
-- 参数滑块与输入框实时联动
-- 0 ns 理想上升沿/下降沿
-- 有符号开关尖峰
-- 合成波形 CSV + 参数 JSON 保存与重新加载
-- 真值分量按需显示
-- DCM 基础电平/时间参数反演
-- 上升/下降尖峰与高频寄生振铃反演
-- DCM 断续谐振与最终噪声残差反演
-- 全局联合参数精修
-- 实测 CSV 与逐阶段/联合重建轨迹叠加
-- 提取结果 JSON v4 导出
-- 参数置信度、拟合 R²、RMSE 与告警
-
-## 后续 DCM SW 研究
-
-当前单事件正向生成与反向参数识别链路已经基本闭环。下一阶段重点不再是继续堆单事件参数，而是验证算法的普适性：
-
-- 随机生成大量已知真值波形，建立批量参数误差 benchmark
-- 统计各参数 MAE / 相对误差 / P95 误差
-- 研究采样率下降、噪声上升、振铃减弱时的可辨识边界
-- 多周期波形自动检测与稳定周期选择
-- 多周期参数一致性与离群周期剔除
-- 真实示波器 CSV 与合成模型之间的模型失配分析
-- 根据真实数据决定是否扩展上升沿/下降沿独立寄生参数
-- 对大文件的全局优化进一步做后台线程、进度与取消
-
-最终目标是形成“正向生成 + 反向参数识别 + 真值验证 + 统计评测 + 真实 CSV 分析”的完整研究平台。
+正式商业版本发布前，需要单独完成第三方依赖许可、PySide6/Qt 分发合规、EULA、版权信息与 Windows 签名策略。当前仓库不应被视为已经完成这些商业许可审查。
