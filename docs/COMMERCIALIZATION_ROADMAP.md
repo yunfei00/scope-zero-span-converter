@@ -64,6 +64,7 @@ src/scope_zero_span_converter/
     peaks.py
     markers.py
     time_markers.py
+    exporter.py
     state.py
 ```
 
@@ -74,6 +75,7 @@ src/scope_zero_span_converter/
 - [x] 抽离坐标自动/手动/回填公共逻辑到 `dcm_analysis/axis.py`。
 - [x] 抽离 Rectangle zoom / Space history 状态到 `dcm_analysis/zoom.py`。
 - [x] 抽离 Peak 检测、频域 Marker、时域 Marker 为独立模型模块。
+- [x] 抽离综合分析导出逻辑到 `dcm_analysis/exporter.py`，GUI 只负责选择目录和传入当前状态。
 - [ ] 抽离四图绘制层。
 - [ ] 将 v4~v10 行为合并到正式 widget。
 - [ ] 保留旧模块一段兼容期，但主程序与新测试不再引用旧版本模块。
@@ -105,7 +107,7 @@ src/scope_zero_span_converter/
 - [x] DCM 参数提取 GUI 接入同一质量门禁。
 - [x] 波形研究 ROI 转换补齐统一质量门禁和 `waveform_quality` 结果，保持 ROI 相对时间轴及不重采样语义不变。
 - [x] 批量 summary 增加质量状态、dt 最大偏差、最大间隔比。
-- [ ] 核心 DCM extractor 内部旧 5% 时间轴校验迁移到统一质量策略，删除重复规则。
+- [x] 核心 DCM extractor 删除旧 5% 时间轴容差，统一复用 `WaveformQualityReport` 的均匀采样策略；DCM 算法额外保留严格递增要求。
 
 ### Zero Span
 
@@ -139,8 +141,9 @@ src/scope_zero_span_converter/
 - [x] 时域 Marker A / B / ΔT / ΔV；Marker 吸附真实采样点并同步标记 Zero Span 时间轴。
 - [x] 频域 Marker：Frequency / Magnitude / Phase 同频联动。
 - [x] FFT Peak Table；直接复用当前幅相 FFT bins，不重复计算另一份频谱。
-- [ ] Center / RBW marker 信息卡。
-- [ ] 导出当前四图 PNG / CSV / analysis metadata。
+- [x] Center / RBW 信息卡；明确 Span=0、3 dB 接收带宽、VBW、Scope BW、Fs/Nyquist 与当前有效性。
+- [x] 一键导出当前四图 PNG、DCM 时域 CSV、Zero Span Time-vs-Power CSV、幅相频谱 CSV 与 `analysis_metadata.json`。
+- [x] 分析导出 metadata 明确 Zero Span/FFT 语义，并主动排除 Rectangle Zoom 临时历史。
 
 ### Workspace
 
