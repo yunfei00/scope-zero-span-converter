@@ -30,6 +30,7 @@ Scope waveform / DCM parameters
    - 放大、恢复、清除选区
    - 保存 ROI CSV 与 `.region.json`
    - ROI 改变后 Zero Span 自动联动
+   - 加载后显示采样质量摘要、Fs 与 Nyquist；严重非均匀采样/缺点会被拒绝
 
 2. **DCM SW 生成器**
    - 单个 DCM 开关事件参数化建模
@@ -43,6 +44,7 @@ Scope waveform / DCM parameters
 
 3. **DCM 参数提取**
    - 输入仅要求 `time_s,voltage_v`
+   - 进入提取前执行统一时间轴质量门禁
    - 基础电平与时间参数提取
    - 开关沿尖峰/寄生振铃提取
    - DCM 断续谐振提取
@@ -68,6 +70,9 @@ Scope waveform / DCM parameters
    - 幅度/相位来自同一次去直流 + Hann 窗的单边复数 FFT
    - 幅度频谱显示 Zero Span Center 与 RBW 区域
    - 幅度与相位共享 Frequency X 轴
+   - 相位为当前 FFT 记录起点参考下的 Wrapped Phase
+   - 相位有效性采用绝对门限 + 峰值向下 60 dB 动态范围联合策略
+   - 左侧显示当前 FFT Top 8 峰值表：Frequency / Magnitude / Phase
    - 时域、幅度频谱支持鼠标框选放大，`Space` 逐级返回
    - 幅度频谱正常数据刷新时自动适配坐标，并回填实际坐标值
    - 可手工输入频域 X/Y Min / Max / Step 调整当前显示
@@ -79,6 +84,23 @@ Scope waveform / DCM parameters
    - 独立输出目录
    - `batch_summary.csv` / `batch_summary.json`
    - 可汇总 FSW 对比误差
+   - summary 同时记录输入质量状态、dt 最大偏差和最大间隔比，便于批量定位坏数据
+
+## 输入数据质量门禁
+
+`v0.8.0.dev0` 已建立统一时间轴检查。FFT、参数提取入口和 Zero Span 主转换不再只依赖 `median(dt)` 静默继续，而会检查：
+
+```text
+有效点数
+时间起点 / 终点 / Duration
+Median dt / Fs / Nyquist
+重复时间戳
+时间倒序
+采样间隔最大偏差 / RMS 偏差
+异常大间隔 / 疑似缺点
+```
+
+严重异常会拒绝进入 FFT / Zero Span；可排序恢复但原始顺序异常的数据会保留 WARNING 记录。转换后的 `conversion_metadata.json` 会保存 `time_axis_quality`，批量 summary 也保存关键质量字段。
 
 ## Zero Span 算法基线
 
@@ -118,6 +140,8 @@ Center + RBW/2 <= Scope analog bandwidth
 Span = 0
 ```
 
+当开启 FSW Sweep Time / Points 重采样时，如果 FSW Sweep Time 明显超出示波器实际记录范围，程序会直接报错，不再静默用末值延伸生成伪数据。
+
 ## FSW 实测对比
 
 可导入 FSW Zero Span 实测 CSV，并计算：
@@ -147,6 +171,24 @@ time_s,voltage_v
 ```
 
 `metadata.json` 用于读取 FSW Center / Span / RBW / VBW / Sweep Time / Points 等信息。
+
+## 日志与诊断
+
+应用日志采用轮转策略：
+
+```text
+scope-zero-span-converter.log
+单文件最大 10 MB
+最多保留 5 个历史日志
+```
+
+GUI 提供“导出诊断包”，生成 ZIP 供客户支持定位问题。默认包含：
+
+- 软件版本
+- OS / Python 运行环境
+- 当前应用轮转日志
+
+默认**不包含**客户波形、参数 JSON 或配置快照。
 
 ## 安装与运行
 
@@ -178,24 +220,29 @@ Windows 客户版使用 GitHub Release 中的 `ScopeZeroSpanConverter-vX.Y.Z-Win
 ## 当前限制
 
 - DCM 参数提取当前主要针对**单个主要 DCM 开关事件**；多周期与复杂拓扑属于后续验证范围。
-- 幅度频谱是当前记录的 Hann-window 单边 FFT（dBV/bin 语义），不能直接等同于频谱仪 trace。
-- 相位频谱是当前 FFT 记录参考下的 wrapped phase（-180°~+180°），不是网络分析仪意义上的绝对器件相位。
-- Zero Span 算法依赖均匀采样时域数据；v0.8 商业化整改将增加输入采样完整性/时间轴质量检查。
+- 幅度频谱是当前记录的 Hann-window 单边 FFT（peak dBV/bin 语义），不能直接等同于频谱仪 trace。
+- 相位频谱是当前 FFT 记录起点参考下的 wrapped phase（-180°~+180°），不是网络分析仪意义上的绝对器件相位；低能量频点相位会被隐藏。
+- FFT / Zero Span 目前要求时间轴满足统一采样质量门禁；不支持直接对任意非均匀采样数据计算。
+- FSW Sweep Time 与示波器最后采样点之间的名义边界（例如相差一个采样间隔）仍需要结合实机 metadata 固化最终容差规则。
 - DSO-X 3034A 的 350 MHz 模拟带宽是物理限制，不能通过提高数字采样率恢复超出模拟前端带宽的 RF 内容。
 
 ## 商业化整改
 
-`v0.8.x` 的重点不是继续增加图表，而是产品化收口：
+`v0.8.x` 的重点不是继续堆图，而是产品化收口。当前已经完成/正在推进：
 
 - 版本与发布一致性
 - 稳定 GUI 入口与页签 ID
-- 清理版本化 Widget 继承链
-- 输入数据质量检查
-- FFT / Phase 物理定义与有效性提示
+- `dcm_analysis` 的 spectrum / axis / zoom / peaks 正式模块
+- 输入数据质量检查与可追溯 metadata
+- FFT / Phase 物理定义与动态相位门限
 - FSW Sweep 越界保护
-- 完整 Workspace 状态
-- Rotating Log / 诊断包
-- Marker / Peak Table
+- Rotating Log / 一键诊断包
+
+后续继续：
+
+- 完成四图绘制层与旧 `vN` 继承链收口
+- Marker / Cursor
+- Workspace 状态
 - 后台计算 / Progress / Cancel
 - Installer / VersionInfo / License / 客户手册
 
