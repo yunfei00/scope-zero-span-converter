@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from matplotlib.widgets import RectangleSelector
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QFormLayout
 
+from .dcm_analysis.zoom import ZoomBounds, ZoomState, ZoomTarget, normalized_bounds
 from .dcm_zero_span_widget_v5 import DcmZeroSpanWidget as FrequencyAxisDcmZeroSpanWidget
-
-
-ZoomTarget = Literal["time", "frequency"]
-ZoomBounds = tuple[tuple[float, float], tuple[float, float]]
 
 
 class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
@@ -28,11 +23,10 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
 
     def __init__(self, parent=None) -> None:
         # 父类初始化过程中会动态调用本类 _redraw，因此缩放状态必须提前存在。
-        self._zoom_ranges: dict[ZoomTarget, ZoomBounds | None] = {
-            "time": None,
-            "frequency": None,
-        }
-        self._zoom_history: list[tuple[ZoomTarget, ZoomBounds | None]] = []
+        self._zoom_state = ZoomState()
+        # 兼容现有测试和历史内部访问；真实状态由 ZoomState 管理。
+        self._zoom_ranges = self._zoom_state.ranges
+        self._zoom_history = self._zoom_state.history
         self._zoom_selectors: dict[ZoomTarget, RectangleSelector] = {}
         self._zoom_axes: dict[ZoomTarget, object] = {}
         self._zoom_key_cid: int | None = None
@@ -117,14 +111,7 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
     # ------------------------------------------------------------------
     # Zoom state
     # ------------------------------------------------------------------
-    @staticmethod
-    def _normalized_bounds(a: float, b: float) -> tuple[float, float] | None:
-        low = float(min(a, b))
-        high = float(max(a, b))
-        scale = max(abs(low), abs(high), 1.0)
-        if high - low <= scale * 1e-12:
-            return None
-        return low, high
+    _normalized_bounds = staticmethod(normalized_bounds)
 
     def _on_zoom_rectangle(self, target: ZoomTarget, eclick, erelease) -> None:
         if (
@@ -137,14 +124,13 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
         ):
             return
 
-        x_bounds = self._normalized_bounds(eclick.xdata, erelease.xdata)
-        y_bounds = self._normalized_bounds(eclick.ydata, erelease.ydata)
+        x_bounds = normalized_bounds(eclick.xdata, erelease.xdata)
+        y_bounds = normalized_bounds(eclick.ydata, erelease.ydata)
         if x_bounds is None or y_bounds is None:
             return
 
-        previous = self._zoom_ranges[target]
-        self._zoom_history.append((target, previous))
-        self._zoom_ranges[target] = (x_bounds, y_bounds)
+        bounds: ZoomBounds = (x_bounds, y_bounds)
+        self._zoom_state.push(target, bounds)
         self.canvas.setFocus()
         self._redraw(zero_span_error=self.current_zero_span_error)
 
@@ -161,17 +147,11 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
         self._undo_last_zoom()
 
     def _undo_last_zoom(self) -> None:
-        if not self._zoom_history:
-            return
-        target, previous = self._zoom_history.pop()
-        self._zoom_ranges[target] = previous
-        self._redraw(zero_span_error=self.current_zero_span_error)
+        if self._zoom_state.undo():
+            self._redraw(zero_span_error=self.current_zero_span_error)
 
     def _clear_zoom_target(self, target: ZoomTarget) -> None:
-        self._zoom_ranges[target] = None
-        self._zoom_history = [
-            entry for entry in self._zoom_history if entry[0] != target
-        ]
+        self._zoom_state.clear(target)
 
     def _apply_zoom_ranges_if_ready(self) -> None:
         if len(self.figure.axes) < 2:
@@ -180,7 +160,7 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
         ax_time = self.figure.axes[0]
         ax_frequency = self.figure.axes[1]
 
-        time_zoom = self._zoom_ranges["time"]
+        time_zoom = self._zoom_state.current("time")
         if time_zoom is not None:
             (x_min, x_max), (y_min, y_max) = time_zoom
             # ax_time 与左下 Zero Span sharex，因此这里设置时左下时间范围同步变化。
@@ -189,7 +169,7 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
             ax_time.set_autoscalex_on(False)
             ax_time.set_autoscaley_on(False)
 
-        frequency_zoom = self._zoom_ranges["frequency"]
+        frequency_zoom = self._zoom_state.current("frequency")
         if frequency_zoom is not None:
             (x_min, x_max), (y_min, y_max) = frequency_zoom
             ax_frequency.set_xlim(x_min, x_max, auto=False)
@@ -207,7 +187,6 @@ class DcmZeroSpanWidget(FrequencyAxisDcmZeroSpanWidget):
             getattr(self, "dcm_y_max", None),
             getattr(self, "dcm_y_step", None),
         }
-        # sender=None covers tests/manual method calls and means treat as explicit base reset.
         if sender is None or sender in dcm_axis_controls:
             self._clear_zoom_target("time")
         super()._on_axis_display_changed(*_args)
