@@ -19,14 +19,17 @@ class DcmZeroSpanWidget(SyncedFrequencyDcmZeroSpanWidget):
 
     幅度和相位来自同一次去直流 + Hann 窗的单边复数 FFT，使用完全相同的
     frequency bins。右上/右下共享频率 X 轴；右上频率拖框放大时右下同步。
-    幅度低于 PHASE_VISIBLE_FLOOR_DBV 的 bin 相位没有实际分析价值，显示为 NaN。
+    相位采用绝对门限 + 相对峰值动态范围联合判定，避免噪声底相位被误认为
+    有效相位；相位参考明确为当前 FFT 记录起点。
     """
 
     PHASE_VISIBLE_FLOOR_DBV = -120.0
+    PHASE_DYNAMIC_RANGE_DB = 60.0
 
     def __init__(self, parent=None) -> None:
         # 父类构造阶段会动态调用本类绘图方法，因此相位缓存必须提前建立。
         self.current_spectrum_phase_deg = np.asarray([], dtype=float)
+        self.current_phase_visibility_threshold_dbv = self.PHASE_VISIBLE_FLOOR_DBV
         super().__init__(parent)
         self._redraw(zero_span_error=self.current_zero_span_error)
 
@@ -40,6 +43,10 @@ class DcmZeroSpanWidget(SyncedFrequencyDcmZeroSpanWidget):
             waveform.voltage_v,
             amplitude_floor_dbv=self.SPECTRUM_FLOOR_DBV,
             phase_visible_floor_dbv=self.PHASE_VISIBLE_FLOOR_DBV,
+            phase_dynamic_range_db=self.PHASE_DYNAMIC_RANGE_DB,
+        )
+        self.current_phase_visibility_threshold_dbv = (
+            spectrum.phase_visibility_threshold_dbv
         )
         return spectrum.frequency_hz, spectrum.amplitude_dbv, spectrum.phase_deg
 
@@ -149,7 +156,8 @@ class DcmZeroSpanWidget(SyncedFrequencyDcmZeroSpanWidget):
         ax.set_xlabel("频率 (MHz)")
         ax.set_ylabel("相位 (°)")
         ax.set_title(
-            f"DCM 相位频谱（幅度 < {self.PHASE_VISIBLE_FLOOR_DBV:.0f} dBV 隐藏）"
+            "DCM 相位频谱（Wrapped；参考=当前记录起点；"
+            f"有效幅度 ≥ {self.current_phase_visibility_threshold_dbv:.1f} dBV）"
         )
         ax.set_ylim(-180.0, 180.0, auto=False)
         ax.yaxis.set_major_locator(
