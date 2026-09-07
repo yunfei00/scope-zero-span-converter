@@ -31,8 +31,8 @@
 - [x] AppState 增加稳定 `selected_tab_id`，同时兼容旧数字索引。
 - [x] README 更新到当前五工作区和四视图能力。
 - [x] Release 使用说明更新为当前功能集。
-- [ ] CHANGELOG 补齐 v0.5 / v0.6 / v0.7 与 v0.8 开发说明。
-- [ ] 增加版本一致性自动测试。
+- [x] CHANGELOG 补齐 v0.5 / v0.6 / v0.7 与 v0.8 开发说明。
+- [x] 增加版本一致性自动测试，并兼容 main 开发版本与 tag 正式版本。
 
 ### 验收
 
@@ -65,10 +65,10 @@ src/scope_zero_span_converter/
 
 ### 工作项
 
-- [ ] 保持 `dcm_analysis_widget.py` 作为稳定兼容入口。
-- [ ] 抽离 FFT 幅度/相位计算为纯算法模块。
-- [ ] 抽离坐标自动/手动/回填逻辑。
-- [ ] 抽离 Rectangle zoom / Space history。
+- [x] 保持 `dcm_analysis_widget.py` 作为稳定兼容入口。
+- [x] 抽离 FFT 幅度/相位计算为纯算法模块 `dcm_analysis/spectrum.py`。
+- [x] 抽离坐标自动/手动/回填公共逻辑到 `dcm_analysis/axis.py`。
+- [x] 抽离 Rectangle zoom / Space history 状态到 `dcm_analysis/zoom.py`。
 - [ ] 抽离四图绘制层。
 - [ ] 将 v4~v10 行为合并到正式 widget。
 - [ ] 保留旧模块一段兼容期，但主程序与新测试不再引用旧版本模块。
@@ -89,27 +89,32 @@ src/scope_zero_span_converter/
 
 ### 输入数据质量
 
-- [ ] `WaveformQualityReport`：点数、起止时间、duration、Fs、Nyquist、dt median、dt jitter。
-- [ ] 重复时间戳检测。
-- [ ] 非递增时间检测。
-- [ ] 非均匀采样检测。
-- [ ] 大间隔/疑似缺点检测。
-- [ ] GUI 显示 `PASS / WARNING / FAIL`。
-- [ ] FFT / Zero Span 在严重时间轴异常时拒绝计算，而不是只用 median(dt) 继续。
+- [x] `WaveformQualityReport`：点数、起止时间、duration、Fs、Nyquist、dt median、dt jitter。
+- [x] 重复时间戳检测。
+- [x] 非递增/时间倒序检测与可追溯 WARNING。
+- [x] 非均匀采样检测。
+- [x] 大间隔/疑似缺点检测。
+- [x] GUI 显示 `PASS / WARN / FAIL` 相关质量信息。
+- [x] FFT / Zero Span 在严重时间轴异常时拒绝计算，而不是只用 median(dt) 继续。
+- [x] 建立 `waveform_io.py` 统一安全 CSV 加载入口，并记录清理无效行数量。
+- [x] DCM 参数提取 GUI 接入同一质量门禁。
+- [x] 批量 summary 增加质量状态、dt 最大偏差、最大间隔比。
+- [ ] 核心 DCM extractor 内部旧 5% 时间轴校验迁移到统一质量策略，删除重复规则。
 
 ### Zero Span
 
-- [ ] FSW Sweep Time 超出 Scope 实际时间范围时禁止静默首尾值延伸。
-- [ ] 增加明确的 Sweep/Scope 时间覆盖检查。
-- [ ] 保持 `Center + RBW/2 < Nyquist`。
-- [ ] 保持 `Center + RBW/2 <= Scope analog BW`。
+- [x] FSW Sweep Time 超出 Scope 实际时间范围时禁止静默首尾值延伸。
+- [x] 增加明确的 Sweep/Scope 时间覆盖检查。
+- [x] 保持 `Center + RBW/2 < Nyquist`。
+- [x] 保持 `Center + RBW/2 <= Scope analog BW`。
+- [ ] 明确“名义 Sweep Time 与最后一个采样点相差一个 dt”时的边界容差策略，并用实机 metadata 验证。
 
 ### FFT / Phase
 
-- [ ] 明确显示 FFT：去 DC / Hann / single-sided / dBV-bin 定义。
-- [ ] 相位显示 `Wrapped Phase` 和参考定义。
-- [ ] 明确：相位参考当前记录/FFT 窗口，不等同于网络分析仪器件绝对相位。
-- [ ] 相位有效门限从固定 `-120 dBV` 升级为“绝对门限 + 相对峰值动态范围”策略。
+- [x] 明确 FFT：去 DC / Hann / single-sided / peak dBV per bin 定义。
+- [x] 相位显示 `Wrapped Phase` 和参考定义。
+- [x] 明确：相位参考当前记录/FFT 窗口，不等同于网络分析仪器件绝对相位。
+- [x] 相位有效门限升级为“绝对门限 + 相对峰值 60 dB 动态范围”策略，并记录实际有效阈值。
 
 ### 验收
 
@@ -151,11 +156,13 @@ src/scope_zero_span_converter/
 
 ### 日志/诊断
 
-- [ ] RotatingFileHandler。
-- [ ] 日志大小/保留数量限制。
-- [ ] `帮助 → 打开日志目录`。
-- [ ] `帮助 → 导出诊断包`。
-- [ ] 诊断包包含 version / OS / config / latest logs，不包含原始客户波形，除非客户主动选择。
+- [x] RotatingFileHandler。
+- [x] 日志限制为单文件 10 MB、保留 5 个历史文件。
+- [x] 已有“打开日志目录”入口。
+- [x] GUI 增加“一键导出诊断包”。
+- [x] 诊断包包含软件版本、OS/Python 运行环境和轮转日志。
+- [x] 诊断包默认不包含客户原始波形和参数/config 文件。
+- [ ] 后续增加可选的客户主动授权附件机制时，必须显式勾选而不能默认收集。
 
 ---
 
