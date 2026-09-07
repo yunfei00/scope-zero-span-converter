@@ -7,6 +7,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .waveform_quality import analyze_time_axis, require_fft_safe
+
 
 _MIN_POINTS = 64
 _U10 = float(np.arccos(0.8) / np.pi)
@@ -321,16 +323,14 @@ def _validate_waveform(time_s: np.ndarray, voltage_v: np.ndarray) -> None:
         raise ValueError(f"波形至少需要 {_MIN_POINTS} 个点")
     if not np.all(np.isfinite(time_s)) or not np.all(np.isfinite(voltage_v)):
         raise ValueError("波形包含 NaN 或 Inf")
-    diff = np.diff(time_s)
-    if np.any(diff <= 0):
+    if np.any(np.diff(time_s) <= 0):
+        # DCM 基础提取使用时间顺序定位开关沿，因此即使统一质量层可以对
+        # CSV 倒序给出 WARN，这个核心算法仍要求输入已经按时间严格递增。
         raise ValueError("time_s 必须严格递增")
-    median_dt = float(np.median(diff))
-    if median_dt <= 0:
-        raise ValueError("无法确定有效采样间隔")
-    # 第一阶段允许轻微非均匀时间轴，但明显不均匀需要先重采样。
-    max_deviation = float(np.max(np.abs(diff - median_dt)))
-    if max_deviation > median_dt * 0.05:
-        raise ValueError("当前基础提取器要求近似等间隔 time_s；请先重采样")
+
+    # 均匀采样阈值只由 WaveformQualityReport 定义。这里不再维护独立的 5%
+    # 容差，避免 DCM 提取、FFT 与 Zero Span 对同一份波形给出互相矛盾的判断。
+    require_fft_safe(analyze_time_axis(time_s))
 
 
 def _odd(value: int) -> int:
