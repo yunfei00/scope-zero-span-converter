@@ -33,6 +33,9 @@ class BatchItemResult:
     rbw_hz: float | None = None
     vbw_hz: float | None = None
     sample_rate_hz: float | None = None
+    quality_status: str | None = None
+    dt_max_deviation_percent: float | None = None
+    max_gap_ratio: float | None = None
     mae_db: float | None = None
     rmse_db: float | None = None
     bias_db: float | None = None
@@ -173,6 +176,7 @@ def run_batch(config: AppConfig) -> BatchRunResult:
             )
 
             comparison = conversion.comparison
+            quality = conversion.waveform_quality
             result.items.append(
                 BatchItemResult(
                     name=job.name,
@@ -183,6 +187,9 @@ def run_batch(config: AppConfig) -> BatchRunResult:
                     rbw_hz=conversion.rbw_hz,
                     vbw_hz=conversion.vbw_hz,
                     sample_rate_hz=conversion.sample_rate_hz,
+                    quality_status=quality.status,
+                    dt_max_deviation_percent=quality.max_dt_deviation_fraction * 100.0,
+                    max_gap_ratio=quality.max_gap_ratio,
                     mae_db=comparison.mae_db if comparison else None,
                     rmse_db=comparison.rmse_db if comparison else None,
                     bias_db=comparison.bias_db if comparison else None,
