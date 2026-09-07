@@ -16,6 +16,12 @@ from .axis import (
 from .exporter import EXPORT_SCHEMA_VERSION, export_dcm_analysis_bundle
 from .markers import SpectrumMarker, spectrum_marker_at_frequency
 from .peaks import SpectrumPeak, find_spectrum_peaks
+from .plots import (
+    draw_magnitude_spectrum_panel,
+    draw_phase_spectrum_panel,
+    draw_time_domain_panel,
+    draw_zero_span_panel,
+)
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .time_markers import (
     TimeMarker,
@@ -36,6 +42,10 @@ __all__ = [
     "TimeMarkerDelta",
     "time_marker_at_time",
     "time_marker_delta",
+    "draw_time_domain_panel",
+    "draw_zero_span_panel",
+    "draw_magnitude_spectrum_panel",
+    "draw_phase_spectrum_panel",
     "EXPORT_SCHEMA_VERSION",
     "export_dcm_analysis_bundle",
     "fixed_ticks",
