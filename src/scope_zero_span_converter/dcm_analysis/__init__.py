@@ -13,6 +13,7 @@ from .axis import (
     major_tick_step,
     nice_step,
 )
+from .markers import SpectrumMarker, spectrum_marker_at_frequency
 from .peaks import SpectrumPeak, find_spectrum_peaks
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .zoom import ZoomBounds, ZoomState, ZoomTarget, normalized_bounds
@@ -22,6 +23,8 @@ __all__ = [
     "compute_dcm_spectrum",
     "SpectrumPeak",
     "find_spectrum_peaks",
+    "SpectrumMarker",
+    "spectrum_marker_at_frequency",
     "fixed_ticks",
     "nice_step",
     "automatic_bounds",
