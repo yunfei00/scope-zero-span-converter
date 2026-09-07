@@ -3,9 +3,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from matplotlib.ticker import FixedLocator
 from PySide6.QtWidgets import QFormLayout
 
+from .dcm_analysis.axis import apply_fixed_xy_axis, nice_step
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_zero_span_widget_v4 import DcmZeroSpanWidget as FourPanelDcmZeroSpanWidget
 
@@ -61,9 +61,8 @@ class DcmZeroSpanWidget(FourPanelDcmZeroSpanWidget):
         else:
             x_min, x_max = 0.0, 1000.0
 
-        # 初始每格约分成 10 格；用户一旦修改后就完全固定。
         span_x = max(x_max - x_min, 1.0)
-        x_step = self._nice_frequency_step(span_x / 10.0)
+        x_step = nice_step(span_x / 10.0)
 
         finite_y = np.asarray(amplitude_dbv, dtype=float)
         finite_y = finite_y[np.isfinite(finite_y)]
@@ -99,22 +98,8 @@ class DcmZeroSpanWidget(FourPanelDcmZeroSpanWidget):
             for spin in spins:
                 spin.blockSignals(False)
 
-    @staticmethod
-    def _nice_frequency_step(value: float) -> float:
-        if not math.isfinite(value) or value <= 0:
-            return 1.0
-        exponent = math.floor(math.log10(value))
-        scale = 10.0 ** exponent
-        normalized = value / scale
-        if normalized <= 1.0:
-            nice = 1.0
-        elif normalized <= 2.0:
-            nice = 2.0
-        elif normalized <= 5.0:
-            nice = 5.0
-        else:
-            nice = 10.0
-        return nice * scale
+    # Compatibility aliases while legacy tests/modules are being retired.
+    _nice_frequency_step = staticmethod(nice_step)
 
     def _on_frequency_axis_changed(self, *_args) -> None:
         # 坐标轴显示设置只重画，不重新生成 DCM、不重新做 FFT/Zero Span。
@@ -131,35 +116,15 @@ class DcmZeroSpanWidget(FourPanelDcmZeroSpanWidget):
         y_max: float,
         y_step: float,
     ) -> None:
-        valid_x = math.isfinite(x_min) and math.isfinite(x_max) and x_max > x_min
-        valid_y = math.isfinite(y_min) and math.isfinite(y_max) and y_max > y_min
-
-        if valid_x:
-            ax.set_autoscalex_on(False)
-            x_ticks = self._fixed_ticks(x_min, x_max, x_step)
-            if len(x_ticks):
-                ax.xaxis.set_major_locator(FixedLocator(x_ticks))
-
-        if valid_y:
-            ax.set_autoscaley_on(False)
-            y_ticks = self._fixed_ticks(y_min, y_max, y_step)
-            if len(y_ticks):
-                ax.yaxis.set_major_locator(FixedLocator(y_ticks))
-
-        for line in ax.lines:
-            line.set_clip_on(True)
-        for patch in ax.patches:
-            patch.set_clip_on(True)
-
-        # 必须在 locator 和标记线/阴影完成后最后锁定，防止 Matplotlib 自动扩轴。
-        if valid_x:
-            ax.set_xlim(float(x_min), float(x_max), auto=False)
-            ax.set_autoscalex_on(False)
-        if valid_y:
-            ax.set_ylim(float(y_min), float(y_max), auto=False)
-            ax.set_autoscaley_on(False)
-
-        ax.grid(True, which="major", alpha=0.25)
+        apply_fixed_xy_axis(
+            ax,
+            x_min=x_min,
+            x_max=x_max,
+            x_step=x_step,
+            y_min=y_min,
+            y_max=y_max,
+            y_step=y_step,
+        )
 
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
         super()._draw_frequency_panel(ax, waveform)
