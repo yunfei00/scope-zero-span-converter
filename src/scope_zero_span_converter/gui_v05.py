@@ -9,6 +9,7 @@ from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
+from .waveform_quality import analyze_time_axis
 
 
 LOGGER = get_logger()
@@ -73,6 +74,21 @@ class MainWindow(WaveformResearchMainWindow):
         widget = mapping.get(tab_id)
         return self.tabs.indexOf(widget) if widget is not None else -1
 
+    def load_waveform_from_ui(self) -> None:
+        """Load through the base workflow, then expose the shared quality report."""
+        super().load_waveform_from_ui()
+        if self.waveform_time is None or len(self.waveform_time) < 2:
+            return
+
+        quality = analyze_time_axis(self.waveform_time)
+        # load_waveform() has already applied the hard quality gate. This line is
+        # customer-facing traceability: show the actual sampling assumptions used
+        # by FFT / Zero Span instead of leaving them implicit.
+        self.status_label.setText(
+            f"{self.status_label.text()} | 数据质量：{quality.summary()} | "
+            f"Nyquist={quality.nyquist_hz/1e6:.6g} MHz"
+        )
+
     def _enable_ideal_edge_controls(self) -> None:
         for control in (
             self.dcm_generator_tab.rise_ns,
@@ -108,16 +124,19 @@ class MainWindow(WaveformResearchMainWindow):
         self.tabs.setCurrentWidget(self.research_tab)
 
         e = waveform.events
+        quality = analyze_time_axis(self.waveform_time)
         self.status_label.setText(
             "已从 DCM SW 生成器载入内存波形："
             f"{waveform.points} 点 | Fs={waveform.sample_rate_hz/1e9:.6g} GSa/s | "
             f"时间范围 {waveform.time_s[0]*1e6:.6g}~{waveform.time_s[-1]*1e6:.6g} µs | "
             f"开关起始 {e.rise_start_s*1e6:.6g} µs | "
-            f"断续谐振起始 {e.freewheel_end_s*1e6:.6g} µs。"
+            f"断续谐振起始 {e.freewheel_end_s*1e6:.6g} µs | "
+            f"数据质量 {quality.status.upper()}，Nyquist={quality.nyquist_hz/1e6:.6g} MHz。"
             "现在可直接框选研究区域；如需留档，请先在生成器页保存 CSV + 参数 JSON。"
         )
         LOGGER.info(
-            "generated DCM SW waveform sent to research points=%d fs=%g",
+            "generated DCM SW waveform sent to research points=%d fs=%g quality=%s",
             waveform.points,
             waveform.sample_rate_hz,
+            quality.status,
         )
