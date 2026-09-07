@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QDoubleSpinBox,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -23,6 +25,11 @@ from PySide6.QtWidgets import (
 from .dcm_analysis.markers import SpectrumMarker, spectrum_marker_at_frequency
 from .dcm_analysis.peaks import SpectrumPeak, find_spectrum_peaks
 from .dcm_analysis.spectrum import DcmSpectrum
+from .dcm_analysis.time_markers import (
+    TimeMarker,
+    time_marker_at_time,
+    time_marker_delta,
+)
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_zero_span_widget_v10 import DcmZeroSpanWidget as _CurrentDcmAnalysisWidget
 
@@ -39,11 +46,25 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         self.marker_info_label: QLabel | None = None
         self._current_peaks: list[SpectrumPeak] = []
         self.selected_marker_frequency_hz: float | None = None
+
+        self.time_marker_a_enable: QCheckBox | None = None
+        self.time_marker_b_enable: QCheckBox | None = None
+        self.time_marker_a_time_us: QDoubleSpinBox | None = None
+        self.time_marker_b_time_us: QDoubleSpinBox | None = None
+        self.time_marker_info_label: QLabel | None = None
+        self._time_marker_defaults_initialized = False
+
         super().__init__(parent)
         self._build_peak_table()
+        self._build_time_marker_controls()
         self._refresh_peak_table()
         self._update_marker_info()
+        self._sync_time_marker_controls_to_waveform()
+        self._update_time_marker_info()
 
+    # ------------------------------------------------------------------
+    # Frequency peak table / marker
+    # ------------------------------------------------------------------
     def _build_peak_table(self) -> None:
         group = QGroupBox("频谱峰值（Top 8，与幅度/相位频谱同源）")
         layout = QVBoxLayout(group)
@@ -204,6 +225,203 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         ax.set_xlim(xlim, auto=False)
         ax.set_ylim(ylim, auto=False)
 
+    # ------------------------------------------------------------------
+    # Time-domain A/B markers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _new_time_spin() -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setDecimals(9)
+        spin.setRange(-1e9, 1e9)
+        spin.setSingleStep(0.01)
+        spin.setSuffix(" µs")
+        spin.setKeyboardTracking(False)
+        return spin
+
+    def _build_time_marker_controls(self) -> None:
+        group = QGroupBox("时域 Marker A / B（与 Zero Span 时间轴联动）")
+        layout = QVBoxLayout(group)
+
+        marker_a_row = QHBoxLayout()
+        self.time_marker_a_enable = QCheckBox("启用 A")
+        self.time_marker_a_time_us = self._new_time_spin()
+        marker_a_row.addWidget(self.time_marker_a_enable)
+        marker_a_row.addWidget(QLabel("时间"))
+        marker_a_row.addWidget(self.time_marker_a_time_us, 1)
+        layout.addLayout(marker_a_row)
+
+        marker_b_row = QHBoxLayout()
+        self.time_marker_b_enable = QCheckBox("启用 B")
+        self.time_marker_b_time_us = self._new_time_spin()
+        marker_b_row.addWidget(self.time_marker_b_enable)
+        marker_b_row.addWidget(QLabel("时间"))
+        marker_b_row.addWidget(self.time_marker_b_time_us, 1)
+        layout.addLayout(marker_b_row)
+
+        action_row = QHBoxLayout()
+        self.time_marker_info_label = QLabel(
+            "A/B 未启用。Marker 会吸附到当前波形最近的真实采样点。"
+        )
+        self.time_marker_info_label.setWordWrap(True)
+        clear_btn = QPushButton("清除 A/B")
+        clear_btn.clicked.connect(self._clear_time_markers)
+        action_row.addWidget(self.time_marker_info_label, 1)
+        action_row.addWidget(clear_btn)
+        layout.addLayout(action_row)
+
+        for control in (
+            self.time_marker_a_enable,
+            self.time_marker_b_enable,
+        ):
+            control.toggled.connect(self._on_time_marker_changed)
+        for control in (
+            self.time_marker_a_time_us,
+            self.time_marker_b_time_us,
+        ):
+            control.valueChanged.connect(self._on_time_marker_changed)
+
+        insert_index = max(0, self.left_layout.count() - 1)
+        self.left_layout.insertWidget(insert_index, group)
+
+    def _sync_time_marker_controls_to_waveform(self) -> None:
+        waveform = self.current_waveform
+        spins = (self.time_marker_a_time_us, self.time_marker_b_time_us)
+        if waveform is None or any(spin is None for spin in spins) or len(waveform.time_s) == 0:
+            return
+
+        start_us = float(waveform.time_s[0]) * 1e6
+        end_us = float(waveform.time_s[-1]) * 1e6
+        if end_us < start_us:
+            start_us, end_us = end_us, start_us
+        span_us = end_us - start_us
+
+        for spin in spins:
+            assert spin is not None
+            spin.blockSignals(True)
+            try:
+                spin.setRange(start_us, end_us)
+            finally:
+                spin.blockSignals(False)
+
+        if not self._time_marker_defaults_initialized:
+            self._time_marker_defaults_initialized = True
+            default_a = start_us + 0.25 * span_us
+            default_b = start_us + 0.75 * span_us
+            for spin, value in zip(spins, (default_a, default_b), strict=True):
+                assert spin is not None
+                spin.blockSignals(True)
+                try:
+                    spin.setValue(value)
+                finally:
+                    spin.blockSignals(False)
+
+    def _time_marker_from_control(
+        self,
+        enabled: QCheckBox | None,
+        spin: QDoubleSpinBox | None,
+    ) -> TimeMarker | None:
+        waveform = self.current_waveform
+        if (
+            waveform is None
+            or enabled is None
+            or spin is None
+            or not enabled.isChecked()
+            or len(waveform.time_s) == 0
+        ):
+            return None
+        try:
+            return time_marker_at_time(
+                waveform.time_s,
+                waveform.voltage_v,
+                spin.value() * 1e-6,
+            )
+        except ValueError:
+            return None
+
+    def _current_time_markers(self) -> tuple[TimeMarker | None, TimeMarker | None]:
+        return (
+            self._time_marker_from_control(
+                self.time_marker_a_enable,
+                self.time_marker_a_time_us,
+            ),
+            self._time_marker_from_control(
+                self.time_marker_b_enable,
+                self.time_marker_b_time_us,
+            ),
+        )
+
+    def _update_time_marker_info(self) -> None:
+        label = self.time_marker_info_label
+        if label is None:
+            return
+        marker_a, marker_b = self._current_time_markers()
+        if marker_a is None and marker_b is None:
+            label.setText("A/B 未启用。Marker 会吸附到当前波形最近的真实采样点。")
+            return
+
+        parts: list[str] = []
+        if marker_a is not None:
+            parts.append(f"A: {marker_a.time_s*1e6:.9g} µs / {marker_a.voltage_v:.6g} V")
+        if marker_b is not None:
+            parts.append(f"B: {marker_b.time_s*1e6:.9g} µs / {marker_b.voltage_v:.6g} V")
+        if marker_a is not None and marker_b is not None:
+            delta = time_marker_delta(marker_a, marker_b)
+            parts.append(
+                f"ΔT={delta.delta_time_s*1e6:+.9g} µs | "
+                f"ΔV={delta.delta_voltage_v:+.6g} V"
+            )
+        label.setText(" | ".join(parts))
+
+    def _on_time_marker_changed(self, *_args) -> None:
+        self._update_time_marker_info()
+        self._redraw(zero_span_error=self.current_zero_span_error)
+
+    def _clear_time_markers(self) -> None:
+        controls = (self.time_marker_a_enable, self.time_marker_b_enable)
+        for control in controls:
+            if control is None:
+                continue
+            control.blockSignals(True)
+            try:
+                control.setChecked(False)
+            finally:
+                control.blockSignals(False)
+        self._update_time_marker_info()
+        self._redraw(zero_span_error=self.current_zero_span_error)
+
+    @staticmethod
+    def _draw_one_time_marker(ax_time, ax_zero, marker: TimeMarker | None, name: str) -> None:
+        if marker is None:
+            return
+        time_xlim = ax_time.get_xlim()
+        time_ylim = ax_time.get_ylim()
+        zero_xlim = ax_zero.get_xlim()
+        zero_ylim = ax_zero.get_ylim()
+
+        x_us = marker.time_s * 1e6
+        ax_time.axvline(x_us, linestyle=":", linewidth=1.1)
+        ax_time.plot([x_us], [marker.voltage_v], marker="o", markersize=4)
+        ax_time.annotate(name, (x_us, marker.voltage_v), xytext=(4, 5), textcoords="offset points")
+        ax_zero.axvline(x_us, linestyle=":", linewidth=1.1)
+
+        # Marker overlays are display-only and must not alter fixed/manual/zoom ranges.
+        ax_time.set_xlim(time_xlim, auto=False)
+        ax_time.set_ylim(time_ylim, auto=False)
+        ax_zero.set_xlim(zero_xlim, auto=False)
+        ax_zero.set_ylim(zero_ylim, auto=False)
+
+    def _draw_time_marker_overlays(self) -> None:
+        if self.current_waveform is None or len(self.figure.axes) < 3:
+            return
+        marker_a, marker_b = self._current_time_markers()
+        ax_time = self.figure.axes[0]
+        ax_zero = self.figure.axes[2]
+        self._draw_one_time_marker(ax_time, ax_zero, marker_a, "A")
+        self._draw_one_time_marker(ax_time, ax_zero, marker_b, "B")
+
+    # ------------------------------------------------------------------
+    # Drawing hooks
+    # ------------------------------------------------------------------
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
         # Parent computes/caches the common magnitude+phase FFT first.
         super()._draw_frequency_panel(ax, waveform)
@@ -223,6 +441,21 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
             self._current_frequency_marker(),
             phase=True,
         )
+
+    def _redraw(
+        self,
+        *,
+        zero_span_error: str | None = None,
+        dcm_error: str | None = None,
+    ) -> None:
+        super()._redraw(
+            zero_span_error=zero_span_error,
+            dcm_error=dcm_error,
+        )
+        self._sync_time_marker_controls_to_waveform()
+        self._update_time_marker_info()
+        self._draw_time_marker_overlays()
+        self.canvas.draw_idle()
 
 
 __all__ = ["DcmAnalysisWidget"]
