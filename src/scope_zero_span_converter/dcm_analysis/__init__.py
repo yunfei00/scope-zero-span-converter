@@ -13,6 +13,7 @@ from .axis import (
     major_tick_step,
     nice_step,
 )
+from .exporter import EXPORT_SCHEMA_VERSION, export_dcm_analysis_bundle
 from .markers import SpectrumMarker, spectrum_marker_at_frequency
 from .peaks import SpectrumPeak, find_spectrum_peaks
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
@@ -35,6 +36,8 @@ __all__ = [
     "TimeMarkerDelta",
     "time_marker_at_time",
     "time_marker_delta",
+    "EXPORT_SCHEMA_VERSION",
+    "export_dcm_analysis_bundle",
     "fixed_ticks",
     "nice_step",
     "automatic_bounds",
