@@ -46,6 +46,7 @@ def test_export_bundle_writes_png_csv_and_metadata(tmp_path):
     assert payload["semantics"]["zero_span"].startswith("fixed RF center")
     assert payload["zero_span_result"]["center_frequency_hz"] == 200e6
     assert payload["fft"]["window"] == "hann"
+    assert "zoom_history" not in payload["workspace"]
     assert set(payload["data_files"]) >= {
         "time_domain_csv",
         "zero_span_csv",
