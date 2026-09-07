@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+from PySide6.QtWidgets import QFileDialog, QGroupBox, QMessageBox, QPushButton
 
 from . import __version__
 from .dcm_analysis_widget import DcmAnalysisWidget
 from .dcm_parameter_extractor_widget_v7 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
+from .diagnostics import export_diagnostic_bundle
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
 from .waveform_quality import analyze_time_axis
@@ -44,6 +46,7 @@ class MainWindow(WaveformResearchMainWindow):
         # 保留旧属性名，避免外部脚本/既有测试在商业化收口期间失效。
         self.dcm_zero_span_tab = self.dcm_analysis_tab
         self.tabs.insertTab(3, self.dcm_analysis_tab, "DCM 综合分析")
+        self._install_diagnostic_export_button()
         LOGGER.info(
             "DCM generator, extractor, magnitude/phase spectrum and Zero Span linked page ready"
         )
@@ -88,6 +91,44 @@ class MainWindow(WaveformResearchMainWindow):
             f"{self.status_label.text()} | 数据质量：{quality.summary()} | "
             f"Nyquist={quality.nyquist_hz/1e6:.6g} MHz"
         )
+
+    def _install_diagnostic_export_button(self) -> None:
+        """Add customer-support export next to the existing template/log tools."""
+
+        group = next(
+            (item for item in self.findChildren(QGroupBox) if item.title() == "配置模板"),
+            None,
+        )
+        if group is None or group.layout() is None:
+            return
+
+        self.export_diagnostics_btn = QPushButton("导出诊断包")
+        self.export_diagnostics_btn.setToolTip(
+            "导出软件版本、系统/Python环境和应用日志；默认不包含客户波形或参数文件。"
+        )
+        self.export_diagnostics_btn.clicked.connect(self._export_diagnostics_dialog)
+        group.layout().addWidget(self.export_diagnostics_btn)
+
+    def _export_diagnostics_dialog(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出诊断包",
+            f"ScopeZeroSpanConverter-{__version__}-Diagnostics.zip",
+            "ZIP (*.zip)",
+        )
+        if not path:
+            return
+        try:
+            saved = export_diagnostic_bundle(path)
+            QMessageBox.information(
+                self,
+                "诊断包已导出",
+                f"已保存：{saved}\n\n诊断包不包含客户波形和参数文件。",
+            )
+            LOGGER.info("diagnostic bundle exported path=%s", saved)
+        except Exception as exc:
+            LOGGER.exception("导出诊断包失败")
+            QMessageBox.critical(self, "导出诊断包失败", str(exc))
 
     def _enable_ideal_edge_controls(self) -> None:
         for control in (
