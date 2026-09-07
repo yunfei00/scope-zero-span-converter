@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import __version__
+from .dcm_analysis_widget import DcmAnalysisWidget
 from .dcm_parameter_extractor_widget_v7 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
-from .dcm_zero_span_widget_v10 import DcmZeroSpanWidget
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
 
@@ -16,10 +17,16 @@ LOGGER = get_logger()
 class MainWindow(WaveformResearchMainWindow):
     """波形研究 + DCM SW 生成/反演 + DCM 时域/幅相频域/Zero Span 联动。"""
 
+    TAB_WAVEFORM_RESEARCH = "waveform_research"
+    TAB_DCM_GENERATOR = "dcm_generator"
+    TAB_DCM_EXTRACTOR = "dcm_extractor"
+    TAB_DCM_ANALYSIS = "dcm_analysis"
+    TAB_BATCH = "batch_conversion"
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(
-            "Scope Zero Span Converter - 波形研究 / DCM SW / 时域幅相频域 Zero Span 联动"
+            f"Scope Zero Span Converter {__version__} - DCM 综合分析工作台"
         )
 
         self.dcm_generator_tab = DcmSwGeneratorWidget(self)
@@ -32,11 +39,39 @@ class MainWindow(WaveformResearchMainWindow):
         self.dcm_extractor_tab = DcmParameterExtractorWidget(self)
         self.tabs.insertTab(2, self.dcm_extractor_tab, "DCM 参数提取")
 
-        self.dcm_zero_span_tab = DcmZeroSpanWidget(self)
-        self.tabs.insertTab(3, self.dcm_zero_span_tab, "DCM → Zero Span")
+        self.dcm_analysis_tab = DcmAnalysisWidget(self)
+        # 保留旧属性名，避免外部脚本/既有测试在商业化收口期间失效。
+        self.dcm_zero_span_tab = self.dcm_analysis_tab
+        self.tabs.insertTab(3, self.dcm_analysis_tab, "DCM 综合分析")
         LOGGER.info(
             "DCM generator, extractor, magnitude/phase spectrum and Zero Span linked page ready"
         )
+
+    def tab_id_for_index(self, index: int) -> str:
+        """Return a stable tab identifier instead of persisting a fragile index."""
+        if not 0 <= index < self.tabs.count():
+            return self.TAB_WAVEFORM_RESEARCH
+        widget = self.tabs.widget(index)
+        mapping = {
+            self.research_tab: self.TAB_WAVEFORM_RESEARCH,
+            self.dcm_generator_tab: self.TAB_DCM_GENERATOR,
+            self.dcm_extractor_tab: self.TAB_DCM_EXTRACTOR,
+            self.dcm_analysis_tab: self.TAB_DCM_ANALYSIS,
+            self.batch_tab: self.TAB_BATCH,
+        }
+        return mapping.get(widget, self.TAB_WAVEFORM_RESEARCH)
+
+    def index_for_tab_id(self, tab_id: str) -> int:
+        """Resolve a stable tab identifier; return -1 for unknown values."""
+        mapping = {
+            self.TAB_WAVEFORM_RESEARCH: self.research_tab,
+            self.TAB_DCM_GENERATOR: self.dcm_generator_tab,
+            self.TAB_DCM_EXTRACTOR: self.dcm_extractor_tab,
+            self.TAB_DCM_ANALYSIS: self.dcm_analysis_tab,
+            self.TAB_BATCH: self.batch_tab,
+        }
+        widget = mapping.get(tab_id)
+        return self.tabs.indexOf(widget) if widget is not None else -1
 
     def _enable_ideal_edge_controls(self) -> None:
         for control in (
