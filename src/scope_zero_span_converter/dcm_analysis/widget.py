@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from ..dcm_analysis_widget import DcmAnalysisWidget as _CompatibilityDcmAnalysisWidget
+from ..dcm_sw_generator import load_dcm_sw_parameters, save_dcm_sw_parameters
+from ..dcm_zero_span_link import load_zero_span_profile, save_zero_span_profile
 from .plots import (
     draw_magnitude_spectrum_panel,
     draw_phase_spectrum_panel,
@@ -20,6 +25,104 @@ class DcmAnalysisWidget(_CompatibilityDcmAnalysisWidget):
     production code no longer depends on the legacy v4/v10 redraw methods.
     """
 
+    def __init__(self, parent=None) -> None:
+        # Explicit file state belongs to the formal workspace. Never recover a
+        # path by parsing QLabel text.
+        self.current_dcm_parameters_path: str | None = None
+        self.current_zero_span_profile_path: str | None = None
+        super().__init__(parent)
+
+    @staticmethod
+    def _dialog_start_path(current_path: str | None, fallback_name: str = "") -> str:
+        if current_path:
+            path = Path(current_path)
+            return str(path if path.is_dir() else path.parent)
+        return fallback_name
+
+    # ------------------------------------------------------------------
+    # Explicit recent-file state
+    # ------------------------------------------------------------------
+    def load_dcm_parameters_dialog(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "加载 DCM 参数",
+            self._dialog_start_path(self.current_dcm_parameters_path),
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        try:
+            parameters = load_dcm_sw_parameters(path)
+            self.parameters = parameters
+            self._apply_parameters_to_controls(parameters)
+            self.current_dcm_parameters_path = str(Path(path))
+            self.dcm_file_label.setText(f"当前：{self.current_dcm_parameters_path}")
+            self._recompute()
+        except Exception as exc:
+            QMessageBox.critical(self, "加载 DCM 参数失败", str(exc))
+
+    def save_dcm_parameters_dialog(self) -> None:
+        initial = (
+            self.current_dcm_parameters_path
+            if self.current_dcm_parameters_path
+            else "dcm_sw_parameters.json"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存当前 DCM 参数",
+            initial,
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        try:
+            saved = save_dcm_sw_parameters(self.parameters, path)
+            self.current_dcm_parameters_path = str(saved)
+            self.dcm_file_label.setText(f"当前：{saved}")
+        except Exception as exc:
+            QMessageBox.critical(self, "保存 DCM 参数失败", str(exc))
+
+    def load_zero_span_profile_dialog(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "加载 Zero Span 转换参数",
+            self._dialog_start_path(self.current_zero_span_profile_path),
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        try:
+            self.profile = load_zero_span_profile(path)
+            self.current_zero_span_profile_path = str(Path(path))
+            self._apply_profile_to_controls(self.profile)
+            self._recompute()
+        except Exception as exc:
+            QMessageBox.critical(self, "加载转换参数失败", str(exc))
+
+    def save_zero_span_profile_dialog(self) -> None:
+        initial = (
+            self.current_zero_span_profile_path
+            if self.current_zero_span_profile_path
+            else "zero_span_profile.json"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存 Zero Span 转换参数",
+            initial,
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        try:
+            saved = save_zero_span_profile(self.profile, path)
+            self.current_zero_span_profile_path = str(saved)
+            self.status_label.setText(f"已保存 Zero Span 转换参数：{saved}")
+        except Exception as exc:
+            QMessageBox.critical(self, "保存转换参数失败", str(exc))
+
+    # ------------------------------------------------------------------
+    # Formal four-panel rendering
+    # ------------------------------------------------------------------
     def _redraw(
         self,
         *,
