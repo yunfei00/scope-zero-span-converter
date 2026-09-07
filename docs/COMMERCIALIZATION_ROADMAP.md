@@ -33,6 +33,7 @@
 - [x] Release 使用说明更新为当前功能集。
 - [x] CHANGELOG 补齐 v0.5 / v0.6 / v0.7 与 v0.8 开发说明。
 - [x] 增加版本一致性自动测试，并兼容 main 开发版本与 tag 正式版本。
+- [x] Tests workflow 增加同分支并发取消、20 分钟硬超时和慢测试统计，防止 GUI 测试无限挂起。
 
 ### 验收
 
@@ -60,6 +61,9 @@ src/scope_zero_span_converter/
     plots.py
     axis.py
     zoom.py
+    peaks.py
+    markers.py
+    time_markers.py
     state.py
 ```
 
@@ -69,6 +73,7 @@ src/scope_zero_span_converter/
 - [x] 抽离 FFT 幅度/相位计算为纯算法模块 `dcm_analysis/spectrum.py`。
 - [x] 抽离坐标自动/手动/回填公共逻辑到 `dcm_analysis/axis.py`。
 - [x] 抽离 Rectangle zoom / Space history 状态到 `dcm_analysis/zoom.py`。
+- [x] 抽离 Peak 检测、频域 Marker、时域 Marker 为独立模型模块。
 - [ ] 抽离四图绘制层。
 - [ ] 将 v4~v10 行为合并到正式 widget。
 - [ ] 保留旧模块一段兼容期，但主程序与新测试不再引用旧版本模块。
@@ -98,6 +103,7 @@ src/scope_zero_span_converter/
 - [x] FFT / Zero Span 在严重时间轴异常时拒绝计算，而不是只用 median(dt) 继续。
 - [x] 建立 `waveform_io.py` 统一安全 CSV 加载入口，并记录清理无效行数量。
 - [x] DCM 参数提取 GUI 接入同一质量门禁。
+- [x] 波形研究 ROI 转换补齐统一质量门禁和 `waveform_quality` 结果，保持 ROI 相对时间轴及不重采样语义不变。
 - [x] 批量 summary 增加质量状态、dt 最大偏差、最大间隔比。
 - [ ] 核心 DCM extractor 内部旧 5% 时间轴校验迁移到统一质量策略，删除重复规则。
 
@@ -130,21 +136,23 @@ src/scope_zero_span_converter/
 
 ### 分析体验
 
-- [ ] 时域 Marker A / B / ΔT / ΔV。
-- [ ] 频域 Marker：Frequency / Magnitude / Phase 联动。
-- [ ] FFT Peak Table。
+- [x] 时域 Marker A / B / ΔT / ΔV；Marker 吸附真实采样点并同步标记 Zero Span 时间轴。
+- [x] 频域 Marker：Frequency / Magnitude / Phase 同频联动。
+- [x] FFT Peak Table；直接复用当前幅相 FFT bins，不重复计算另一份频谱。
 - [ ] Center / RBW marker 信息卡。
 - [ ] 导出当前四图 PNG / CSV / analysis metadata。
 
 ### Workspace
 
-- [ ] 保存 DCM 当前参数。
-- [ ] 保存 Zero Span Profile。
-- [ ] 保存图表基础坐标范围。
-- [ ] 保存折叠面板状态。
-- [ ] 保存 splitter 比例。
-- [ ] 保存最近文件。
-- [ ] 不保存临时 zoom history。
+- [x] AppState 升级到 schema v3，并继续兼容旧 schema v1/v2。
+- [x] 保存 DCM 当前参数。
+- [x] 保存 Zero Span Profile。
+- [x] 保存图表基础坐标输入范围。
+- [x] 保存折叠面板状态。
+- [x] 保存 DCM 综合分析左右 Splitter 比例。
+- [x] 保存频域 Marker 与时域 A/B Marker 状态。
+- [ ] 保存最近文件；等待统一 File/Project 模型后实现，不从 QLabel 文本反向解析路径。
+- [x] 不保存临时 zoom history。
 
 ### 性能
 
