@@ -4,7 +4,7 @@ import numpy as np
 from PySide6.QtWidgets import QFileDialog, QGroupBox, QMessageBox, QPushButton
 
 from . import __version__
-from .dcm_analysis_widget import DcmAnalysisWidget
+from .dcm_analysis.widget import DcmAnalysisWidget
 from .dcm_parameter_extractor_widget_v7 import DcmParameterExtractorWidget
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
