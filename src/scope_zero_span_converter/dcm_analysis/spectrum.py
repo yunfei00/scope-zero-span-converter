@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..waveform_quality import analyze_time_axis, require_fft_safe
+
 
 @dataclass(frozen=True)
 class DcmSpectrum:
@@ -31,8 +33,8 @@ def compute_dcm_spectrum(
 ) -> DcmSpectrum:
     """Compute the common complex FFT source for DCM magnitude and phase.
 
-    Processing is intentionally identical to the v0.7 GUI baseline:
-
+    Processing matches the validated v0.7 display definition:
+    - uniform-time-axis quality gate;
     - remove DC by subtracting the record mean;
     - apply a Hann window;
     - use a real-input one-sided FFT;
@@ -40,9 +42,6 @@ def compute_dcm_spectrum(
     - DC/Nyquist bins are not doubled;
     - phase is wrapped to [-180, 180] degrees;
     - phase below the configured visible magnitude floor is masked as NaN.
-
-    Time-axis quality validation is deliberately kept outside this function so
-    Phase 3 can provide one shared validation policy for FFT and Zero Span.
     """
 
     t = np.asarray(time_s, dtype=float)
@@ -51,10 +50,9 @@ def compute_dcm_spectrum(
         empty = np.asarray([], dtype=float)
         return DcmSpectrum(empty, empty, empty, float("nan"))
 
-    dt = float(np.median(np.diff(t)))
-    if not np.isfinite(dt) or dt <= 0:
-        empty = np.asarray([], dtype=float)
-        return DcmSpectrum(empty, empty, empty, dt)
+    quality = analyze_time_axis(t)
+    require_fft_safe(quality)
+    dt = quality.median_dt_s
 
     n = len(v)
     ac = v - float(np.mean(v))
