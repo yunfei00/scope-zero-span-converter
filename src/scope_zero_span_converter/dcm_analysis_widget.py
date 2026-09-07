@@ -11,13 +11,17 @@ import numpy as np
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
+    QHBoxLayout,
     QHeaderView,
+    QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from .dcm_analysis.peaks import find_spectrum_peaks
+from .dcm_analysis.markers import SpectrumMarker, spectrum_marker_at_frequency
+from .dcm_analysis.peaks import SpectrumPeak, find_spectrum_peaks
 from .dcm_analysis.spectrum import DcmSpectrum
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_zero_span_widget_v10 import DcmZeroSpanWidget as _CurrentDcmAnalysisWidget
@@ -29,16 +33,29 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
     PEAK_TABLE_TOP_N = 8
 
     def __init__(self, parent=None) -> None:
-        # Parent construction dynamically draws the spectrum. The table is built
-        # afterwards, so draw hooks must tolerate this initial None state.
+        # Parent construction dynamically draws the spectrum. These commercial
+        # controls are built afterwards, so draw hooks must tolerate None state.
         self.peak_table: QTableWidget | None = None
+        self.marker_info_label: QLabel | None = None
+        self._current_peaks: list[SpectrumPeak] = []
+        self.selected_marker_frequency_hz: float | None = None
         super().__init__(parent)
         self._build_peak_table()
         self._refresh_peak_table()
+        self._update_marker_info()
 
     def _build_peak_table(self) -> None:
         group = QGroupBox("频谱峰值（Top 8，与幅度/相位频谱同源）")
         layout = QVBoxLayout(group)
+
+        info_row = QHBoxLayout()
+        self.marker_info_label = QLabel("Marker：未选择；点击下方峰值行可联动右侧幅度/相位图")
+        self.marker_info_label.setWordWrap(True)
+        clear_marker = QPushButton("清除 Marker")
+        clear_marker.clicked.connect(self._clear_frequency_marker)
+        info_row.addWidget(self.marker_info_label, 1)
+        info_row.addWidget(clear_marker)
+        layout.addLayout(info_row)
 
         table = QTableWidget(0, 4)
         table.setHorizontalHeaderLabels(["#", "频率 (MHz)", "幅度 (dBV)", "相位 (°)"])
@@ -53,8 +70,10 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         table.setToolTip(
             "峰值直接来自右侧当前 DCM FFT 的同一组 frequency bins。"
+            "点击某一行会在幅度/相位图同时显示同频 Marker；"
             "相位被有效幅度门限隐藏时显示 --。"
         )
+        table.cellClicked.connect(self._on_peak_table_clicked)
         layout.addWidget(table)
         self.peak_table = table
 
@@ -91,6 +110,16 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
             phase_dynamic_range_db=float(self.PHASE_DYNAMIC_RANGE_DB),
         )
 
+    def _current_frequency_marker(self) -> SpectrumMarker | None:
+        spectrum = self._spectrum_from_current_cache()
+        frequency_hz = self.selected_marker_frequency_hz
+        if spectrum is None or frequency_hz is None:
+            return None
+        try:
+            return spectrum_marker_at_frequency(spectrum, frequency_hz)
+        except ValueError:
+            return None
+
     def _refresh_peak_table(self) -> None:
         table = self.peak_table
         if table is None:
@@ -108,22 +137,92 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
             if spectrum is not None
             else []
         )
+        self._current_peaks = peaks
 
-        table.setRowCount(len(peaks))
-        for row, peak in enumerate(peaks):
-            values = (
-                str(peak.rank),
-                f"{peak.frequency_hz / 1e6:.6g}",
-                f"{peak.amplitude_dbv:.3f}",
-                "--" if not peak.phase_valid else f"{peak.phase_deg:.2f}",
-            )
-            for column, value in enumerate(values):
-                table.setItem(row, column, QTableWidgetItem(value))
+        table.blockSignals(True)
+        try:
+            table.setRowCount(len(peaks))
+            for row, peak in enumerate(peaks):
+                values = (
+                    str(peak.rank),
+                    f"{peak.frequency_hz / 1e6:.6g}",
+                    f"{peak.amplitude_dbv:.3f}",
+                    "--" if not peak.phase_valid else f"{peak.phase_deg:.2f}",
+                )
+                for column, value in enumerate(values):
+                    table.setItem(row, column, QTableWidgetItem(value))
+        finally:
+            table.blockSignals(False)
+
+    def _on_peak_table_clicked(self, row: int, _column: int) -> None:
+        if not 0 <= row < len(self._current_peaks):
+            return
+        self.selected_marker_frequency_hz = self._current_peaks[row].frequency_hz
+        self._update_marker_info()
+        # Marker is display-only: redraw existing cached/current data without
+        # changing any DCM or Zero Span parameter.
+        self._redraw(zero_span_error=self.current_zero_span_error)
+
+    def _clear_frequency_marker(self) -> None:
+        if self.selected_marker_frequency_hz is None:
+            return
+        self.selected_marker_frequency_hz = None
+        self._update_marker_info()
+        self._redraw(zero_span_error=self.current_zero_span_error)
+
+    def _update_marker_info(self) -> None:
+        label = self.marker_info_label
+        if label is None:
+            return
+        marker = self._current_frequency_marker()
+        if marker is None:
+            label.setText("Marker：未选择；点击下方峰值行可联动右侧幅度/相位图")
+            return
+
+        phase_text = "--（低于有效幅度门限）"
+        if marker.phase_valid:
+            phase_text = f"{marker.phase_deg:.2f}°"
+        label.setText(
+            f"Marker：{marker.frequency_hz/1e6:.6g} MHz | "
+            f"{marker.amplitude_dbv:.3f} dBV | Phase {phase_text}"
+        )
+
+    @staticmethod
+    def _draw_frequency_marker_line(ax, marker: SpectrumMarker | None, *, phase: bool) -> None:
+        if marker is None:
+            return
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        x_mhz = marker.frequency_hz / 1e6
+        ax.axvline(x_mhz, linestyle=":", linewidth=1.2)
+        if phase:
+            if marker.phase_valid:
+                ax.plot([x_mhz], [marker.phase_deg], marker="o", markersize=4)
+        else:
+            ax.plot([x_mhz], [marker.amplitude_dbv], marker="o", markersize=4)
+        # Adding marker artists must never autoscale a customer-selected/zoomed view.
+        ax.set_xlim(xlim, auto=False)
+        ax.set_ylim(ylim, auto=False)
 
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
         # Parent computes/caches the common magnitude+phase FFT first.
         super()._draw_frequency_panel(ax, waveform)
         self._refresh_peak_table()
+        self._update_marker_info()
+        self._draw_frequency_marker_line(
+            ax,
+            self._current_frequency_marker(),
+            phase=False,
+        )
+
+    def _draw_reserved_panel(self, ax) -> None:
+        # v10 uses the reserved-panel hook for the phase spectrum.
+        super()._draw_reserved_panel(ax)
+        self._draw_frequency_marker_line(
+            ax,
+            self._current_frequency_marker(),
+            phase=True,
+        )
 
 
 __all__ = ["DcmAnalysisWidget"]
