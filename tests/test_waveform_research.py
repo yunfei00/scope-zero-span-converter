@@ -79,6 +79,26 @@ def test_region_conversion_preserves_current_200mhz_baseline(tmp_path):
     assert np.median(middle) == pytest.approx(-3.9794, abs=0.5)
     assert result.resampled_to_fsw_axis is False
     assert result.input_points == len(region_t)
+    assert result.time_s[0] == pytest.approx(0.0, abs=1e-15)
+    assert result.waveform_quality.fft_safe is True
+    assert result.waveform_quality.status == "pass"
+    assert result.waveform_quality.sample_rate_hz == pytest.approx(1e9, rel=1e-9)
+
+
+def test_region_conversion_rejects_missing_sample_like_gap(tmp_path):
+    t, v = _make_waveform()
+    region_t, region_v, _ = crop_waveform(t, v, 2e-6, 8e-6)
+    region_t = region_t.copy()
+    region_t[len(region_t) // 2 :] += 1e-9
+
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text("{}", encoding="utf-8")
+
+    config = AppConfig()
+    config.conversion.use_metadata_parameters = False
+
+    with pytest.raises(ValueError, match="时间轴不适合 FFT / Zero Span"):
+        convert_waveform_region(region_t, region_v, metadata_path, config)
 
 
 def test_old_json_without_waveform_research_remains_compatible():
