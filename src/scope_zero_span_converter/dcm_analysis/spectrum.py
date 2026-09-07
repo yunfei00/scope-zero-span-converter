@@ -18,6 +18,9 @@ class DcmSpectrum:
     window: str = "hann"
     amplitude_definition: str = "single_sided_peak_dbv_per_bin"
     phase_reference: str = "record_start"
+    phase_reference_description: str = "当前FFT记录起点（record start）"
+    phase_visibility_threshold_dbv: float = -120.0
+    phase_dynamic_range_db: float | None = 60.0
 
     @property
     def points(self) -> int:
@@ -30,10 +33,13 @@ def compute_dcm_spectrum(
     *,
     amplitude_floor_dbv: float = -300.0,
     phase_visible_floor_dbv: float = -120.0,
+    phase_dynamic_range_db: float | None = 60.0,
 ) -> DcmSpectrum:
     """Compute the common complex FFT source for DCM magnitude and phase.
 
-    Processing matches the validated v0.7 display definition:
+    Processing matches the validated v0.7 display definition while adding a
+    commercial-safety phase visibility rule:
+
     - uniform-time-axis quality gate;
     - remove DC by subtracting the record mean;
     - apply a Hann window;
@@ -41,7 +47,14 @@ def compute_dcm_spectrum(
     - amplitude is coherent-gain corrected peak voltage per FFT bin in dBV;
     - DC/Nyquist bins are not doubled;
     - phase is wrapped to [-180, 180] degrees;
-    - phase below the configured visible magnitude floor is masked as NaN.
+    - phase reference is the start of the current FFT record, not an absolute
+      network-analyzer/S-parameter phase reference;
+    - weak-bin phase is hidden below the stricter of the absolute phase floor
+      and ``peak - phase_dynamic_range_db``.
+
+    The dynamic threshold prevents visually random phase from being presented
+    as meaningful simply because a customer's noise floor happens to be above
+    a fixed -120 dBV threshold.
     """
 
     t = np.asarray(time_s, dtype=float)
@@ -73,13 +86,29 @@ def compute_dcm_spectrum(
     amplitude_dbv = 20.0 * np.log10(np.maximum(amplitude_peak_v, floor_v))
     frequency_hz = np.fft.rfftfreq(n, d=dt)
 
+    phase_threshold_dbv = float(phase_visible_floor_dbv)
+    dynamic_range = None
+    if phase_dynamic_range_db is not None:
+        dynamic_range = float(phase_dynamic_range_db)
+        if not np.isfinite(dynamic_range) or dynamic_range <= 0:
+            raise ValueError("phase_dynamic_range_db 必须为正数或 None")
+        finite_amplitude = amplitude_dbv[np.isfinite(amplitude_dbv)]
+        if len(finite_amplitude):
+            peak_dbv = float(np.max(finite_amplitude))
+            phase_threshold_dbv = max(
+                phase_threshold_dbv,
+                peak_dbv - dynamic_range,
+            )
+
     phase_deg = np.angle(complex_spectrum, deg=True).astype(float, copy=False)
     phase_deg = np.asarray(phase_deg, dtype=float).copy()
-    phase_deg[amplitude_dbv < float(phase_visible_floor_dbv)] = np.nan
+    phase_deg[amplitude_dbv < phase_threshold_dbv] = np.nan
 
     return DcmSpectrum(
         frequency_hz=np.asarray(frequency_hz, dtype=float),
         amplitude_dbv=np.asarray(amplitude_dbv, dtype=float),
         phase_deg=phase_deg,
         sample_interval_s=dt,
+        phase_visibility_threshold_dbv=phase_threshold_dbv,
+        phase_dynamic_range_db=dynamic_range,
     )
