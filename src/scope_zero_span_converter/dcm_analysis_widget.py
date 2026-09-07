@@ -12,16 +12,19 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDoubleSpinBox,
+    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
+from .dcm_analysis.exporter import export_dcm_analysis_bundle
 from .dcm_analysis.markers import SpectrumMarker, spectrum_marker_at_frequency
 from .dcm_analysis.peaks import SpectrumPeak, find_spectrum_peaks
 from .dcm_analysis.spectrum import DcmSpectrum
@@ -32,6 +35,7 @@ from .dcm_analysis.time_markers import (
 )
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_zero_span_widget_v10 import DcmZeroSpanWidget as _CurrentDcmAnalysisWidget
+from .workspace import collect_dcm_analysis_workspace
 
 
 class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
@@ -59,6 +63,7 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         self._build_zero_span_info_card()
         self._build_peak_table()
         self._build_time_marker_controls()
+        self._build_analysis_export_group()
         self._update_zero_span_info_card()
         self._refresh_peak_table()
         self._update_marker_info()
@@ -481,6 +486,52 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         ax_zero = self.figure.axes[2]
         self._draw_one_time_marker(ax_time, ax_zero, marker_a, "A")
         self._draw_one_time_marker(ax_time, ax_zero, marker_b, "B")
+
+    # ------------------------------------------------------------------
+    # One-click analysis export
+    # ------------------------------------------------------------------
+    def _build_analysis_export_group(self) -> None:
+        group = QGroupBox("综合分析导出")
+        layout = QVBoxLayout(group)
+        note = QLabel(
+            "一次导出当前四图 PNG、DCM 时域 CSV、Zero Span CSV、"
+            "幅度/相位频谱 CSV 和 analysis_metadata.json。"
+        )
+        note.setWordWrap(True)
+        button = QPushButton("一键导出当前分析")
+        button.clicked.connect(self.export_analysis_bundle_dialog)
+        layout.addWidget(note)
+        layout.addWidget(button)
+
+        insert_index = max(0, self.left_layout.count() - 1)
+        self.left_layout.insertWidget(insert_index, group)
+
+    def export_analysis_bundle_dialog(self) -> None:
+        if self.current_waveform is None:
+            QMessageBox.information(self, "没有分析结果", "当前还没有有效 DCM 波形可导出。")
+            return
+
+        directory = QFileDialog.getExistingDirectory(self, "选择综合分析导出目录")
+        if not directory:
+            return
+
+        try:
+            workspace = collect_dcm_analysis_workspace(self)
+            workspace["zero_span_valid"] = self.current_zero_span is not None
+            workspace["zero_span_error"] = self.current_zero_span_error
+            outputs = export_dcm_analysis_bundle(
+                directory,
+                waveform=self.current_waveform,
+                zero_span=self.current_zero_span,
+                spectrum=self._spectrum_from_current_cache(),
+                figure=self.figure,
+                metadata=workspace,
+            )
+            self.status_label.setText(
+                f"已导出综合分析：{directory} | 共 {len(outputs)} 个文件"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "导出综合分析失败", str(exc))
 
     # ------------------------------------------------------------------
     # Drawing hooks
