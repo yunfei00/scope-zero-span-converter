@@ -18,6 +18,7 @@ from .converter import (
     gaussian_rbw_baseband,
     load_metadata,
 )
+from .waveform_quality import analyze_time_axis, require_fft_safe
 
 
 @dataclass(frozen=True)
@@ -128,14 +129,6 @@ def save_waveform_region(
     return path, metadata_path
 
 
-def _sample_rate_from_time(time_s: np.ndarray) -> float:
-    dt = np.diff(np.asarray(time_s, dtype=float))
-    dt = dt[np.isfinite(dt) & (dt > 0)]
-    if len(dt) == 0:
-        raise ValueError("研究区域无法推导采样率")
-    return 1.0 / float(np.median(dt))
-
-
 def convert_waveform_region(
     time_s: np.ndarray,
     voltage_v: np.ndarray,
@@ -154,6 +147,10 @@ def convert_waveform_region(
     if len(t) < 32 or len(t) != len(v):
         raise ValueError("研究区域波形无效或点数不足")
 
+    quality = analyze_time_axis(t)
+    require_fft_safe(quality)
+    sample_rate_hz = quality.sample_rate_hz
+
     meta = load_metadata(metadata_path)
     meta_settings = extract_fsw_settings(meta)
     center_hz, rbw_hz, vbw_hz, parameter_sources = _resolve_parameters(
@@ -161,8 +158,7 @@ def convert_waveform_region(
         meta_settings,
     )
 
-    sample_rate_hz = _sample_rate_from_time(t)
-    nyquist_hz = sample_rate_hz / 2.0
+    nyquist_hz = quality.nyquist_hz
     top_hz = center_hz + rbw_hz / 2.0
 
     if top_hz >= nyquist_hz:
@@ -205,4 +201,5 @@ def convert_waveform_region(
         fsw_sweep_time_s=meta_settings.get("sweep_time_s"),
         fsw_trace_points=meta_settings.get("points"),
         resampled_to_fsw_axis=False,
+        waveform_quality=quality,
     )
