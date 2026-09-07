@@ -27,7 +27,11 @@ from PySide6.QtWidgets import (
 from .dcm_analysis.exporter import export_dcm_analysis_bundle
 from .dcm_analysis.markers import SpectrumMarker, spectrum_marker_at_frequency
 from .dcm_analysis.peaks import SpectrumPeak, find_spectrum_peaks
-from .dcm_analysis.spectrum import DcmSpectrum
+from .dcm_analysis.plots import (
+    draw_magnitude_spectrum_panel,
+    draw_phase_spectrum_panel,
+)
+from .dcm_analysis.spectrum import DcmSpectrum, compute_dcm_spectrum
 from .dcm_analysis.time_markers import (
     TimeMarker,
     time_marker_at_time,
@@ -536,9 +540,48 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
     # ------------------------------------------------------------------
     # Drawing hooks
     # ------------------------------------------------------------------
+    def _compute_current_spectrum(self, waveform: DcmSwWaveform) -> DcmSpectrum:
+        spectrum = compute_dcm_spectrum(
+            waveform.time_s,
+            waveform.voltage_v,
+            amplitude_floor_dbv=self.SPECTRUM_FLOOR_DBV,
+            phase_visible_floor_dbv=self.PHASE_VISIBLE_FLOOR_DBV,
+            phase_dynamic_range_db=self.PHASE_DYNAMIC_RANGE_DB,
+        )
+        self.current_spectrum_frequency_hz = spectrum.frequency_hz
+        self.current_spectrum_amplitude_dbv = spectrum.amplitude_dbv
+        self.current_spectrum_phase_deg = spectrum.phase_deg
+        self.current_phase_visibility_threshold_dbv = spectrum.phase_visibility_threshold_dbv
+        return spectrum
+
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
-        # Parent computes/caches the common magnitude+phase FFT first.
-        super()._draw_frequency_panel(ax, waveform)
+        # Stable entry now owns the production magnitude drawing. Legacy v10 is
+        # retained only as a compatibility base for the remaining layout/axis/
+        # zoom behavior while those layers are migrated separately.
+        spectrum = self._compute_current_spectrum(waveform)
+        draw_magnitude_spectrum_panel(
+            ax,
+            spectrum,
+            center_frequency_hz=self.profile.center_frequency_hz,
+            rbw_hz=self.profile.rbw_hz,
+        )
+
+        # Preserve the established v5/v8/v9 behavior: manual coordinate input
+        # affects the current frame only; a normal FFT/data refresh returns to
+        # automatic bounds and writes the resulting values back to the controls.
+        if hasattr(self, "freq_x_min"):
+            self._apply_fixed_axis(
+                ax,
+                x_min=self.freq_x_min.value(),
+                x_max=self.freq_x_max.value(),
+                x_step=self.freq_x_step.value(),
+                y_min=self.freq_y_min.value(),
+                y_max=self.freq_y_max.value(),
+                y_step=self.freq_y_step.value(),
+            )
+        if not getattr(self, "_frequency_manual_redraw_once", False):
+            self._apply_frequency_auto_axis(ax)
+
         self._refresh_peak_table()
         self._update_marker_info()
         self._draw_frequency_marker_line(
@@ -548,8 +591,15 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
         )
 
     def _draw_reserved_panel(self, ax) -> None:
-        # v10 uses the reserved-panel hook for the phase spectrum.
-        super()._draw_reserved_panel(ax)
+        # Stable entry also owns phase rendering from the exact cached bins
+        # produced above. This avoids a second FFT and removes v10's drawing
+        # implementation from the production path.
+        draw_phase_spectrum_panel(
+            ax,
+            self._spectrum_from_current_cache(),
+            center_frequency_hz=self.profile.center_frequency_hz,
+            rbw_hz=self.profile.rbw_hz,
+        )
         self._draw_frequency_marker_line(
             ax,
             self._current_frequency_marker(),
