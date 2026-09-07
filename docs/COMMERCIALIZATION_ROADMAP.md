@@ -25,7 +25,7 @@
 - [x] Release workflow 从 Git tag 注入正式版本。
 - [x] GUI 标题显示真实软件版本。
 - [x] `conversion_metadata.json` / batch summary 继续读取同一 `__version__`。
-- [x] 建立 `dcm_analysis_widget.py` 稳定 GUI 入口。
+- [x] 建立 `dcm_analysis_widget.py` 稳定 GUI 兼容入口。
 - [x] 主界面不再直接依赖 `dcm_zero_span_widget_v10`。
 - [x] `DCM → Zero Span` 页签调整为 `DCM 综合分析`。
 - [x] AppState 增加稳定 `selected_tab_id`，同时兼容旧数字索引。
@@ -70,20 +70,22 @@ src/scope_zero_span_converter/
 
 ### 工作项
 
-- [x] 保持 `dcm_analysis_widget.py` 作为稳定兼容入口。
+- [x] 保持 `dcm_analysis_widget.py` 作为迁移期稳定兼容入口。
+- [x] 新建正式 `dcm_analysis/widget.py`；主界面已直接使用正式 widget。
 - [x] 抽离 FFT 幅度/相位计算为纯算法模块 `dcm_analysis/spectrum.py`。
 - [x] 抽离坐标自动/手动/回填公共逻辑到 `dcm_analysis/axis.py`。
 - [x] 抽离 Rectangle zoom / Space history 状态到 `dcm_analysis/zoom.py`。
 - [x] 抽离 Peak 检测、频域 Marker、时域 Marker 为独立模型模块。
 - [x] 抽离综合分析导出逻辑到 `dcm_analysis/exporter.py`，GUI 只负责选择目录和传入当前状态。
-- [ ] 抽离四图绘制层。
-- [ ] 将 v4~v10 行为合并到正式 widget。
-- [ ] 保留旧模块一段兼容期，但主程序与新测试不再引用旧版本模块。
+- [x] 抽离四图绘制层到 `dcm_analysis/plots.py`；正式 widget 已接管 2×2 布局，左列共享绝对时间，右列共享同一 FFT 频率轴。
+- [ ] 将 v4~v10 剩余控件、坐标回填与交互行为合并到正式 widget；当前仍通过兼容父类复用已验证行为。
+- [ ] 保留旧模块一段兼容期后，主程序与新测试彻底不再引用旧版本模块。
 - [ ] DCM parameter extractor / generator 同样建立稳定入口，停止继续增加 `*_vN`。
 
 ### 验收
 
-- 主程序只引用正式稳定模块。
+- DCM 综合分析主程序路径已进入正式 `dcm_analysis/widget.py`。
+- 四视图绘制不再由 v4/v10 的 `_redraw` / 频谱绘制实现承担。
 - 四视图行为与 v0.7 完全一致。
 - 旧 JSON / CSV 兼容测试全部通过。
 - 不再新增版本号 widget 文件。
