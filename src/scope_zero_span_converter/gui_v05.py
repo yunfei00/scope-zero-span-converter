@@ -79,7 +79,19 @@ class MainWindow(WaveformResearchMainWindow):
 
     def load_waveform_from_ui(self) -> None:
         """Load through the base workflow, then expose the shared quality report."""
+        previous_time = self.waveform_time
+        previous_voltage = self.waveform_voltage
         super().load_waveform_from_ui()
+
+        # gui_v04 currently catches load errors internally and deliberately keeps
+        # the previous valid waveform on screen. Only append a quality summary if
+        # a genuinely new waveform object was installed; otherwise a failed load
+        # could misleadingly label the previous waveform as the failed file's PASS.
+        if (
+            self.waveform_time is previous_time
+            and self.waveform_voltage is previous_voltage
+        ):
+            return
         if self.waveform_time is None or len(self.waveform_time) < 2:
             return
 
