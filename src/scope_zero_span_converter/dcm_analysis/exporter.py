@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .. import __version__
@@ -15,6 +17,27 @@ from .spectrum import DcmSpectrum
 
 
 EXPORT_SCHEMA_VERSION = 1
+_ZOOM_STATE_KEYS = {"zoom_history", "zoom_state", "zoom_stack"}
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert metadata to strict JSON and strip temporary navigation state."""
+
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe(item)
+            for key, item in value.items()
+            if str(key) not in _ZOOM_STATE_KEYS
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def export_dcm_analysis_bundle(
@@ -118,7 +141,13 @@ def export_dcm_analysis_bundle(
 
     metadata_path = root / "analysis_metadata.json"
     metadata_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        json.dumps(
+            _json_safe(payload),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n",
         encoding="utf-8",
     )
     outputs["metadata_json"] = metadata_path
