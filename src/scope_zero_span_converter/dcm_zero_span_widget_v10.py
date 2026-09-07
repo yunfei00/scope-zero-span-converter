@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from matplotlib.ticker import FixedLocator
 
+from .dcm_analysis.spectrum import compute_dcm_spectrum
 from .dcm_sw_generator import DcmSwWaveform
 from .dcm_zero_span_widget_v9 import DcmZeroSpanWidget as SyncedFrequencyDcmZeroSpanWidget
 
@@ -33,41 +34,14 @@ class DcmZeroSpanWidget(SyncedFrequencyDcmZeroSpanWidget):
         self,
         waveform: DcmSwWaveform,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """一次复数 FFT 同时得到频率、幅度 dBV 和 wrapped phase degree。"""
-        t = np.asarray(waveform.time_s, dtype=float)
-        v = np.asarray(waveform.voltage_v, dtype=float)
-        if len(t) < 2 or len(t) != len(v):
-            empty = np.asarray([], dtype=float)
-            return empty, empty, empty
-
-        dt = float(np.median(np.diff(t)))
-        if not np.isfinite(dt) or dt <= 0:
-            empty = np.asarray([], dtype=float)
-            return empty, empty, empty
-
-        n = len(v)
-        ac = v - float(np.mean(v))
-        window = np.hanning(n)
-        coherent_sum = float(np.sum(window))
-        if coherent_sum <= 0:
-            empty = np.asarray([], dtype=float)
-            return empty, empty, empty
-
-        complex_spectrum = np.fft.rfft(ac * window)
-        amplitude_peak_v = 2.0 * np.abs(complex_spectrum) / coherent_sum
-        if len(amplitude_peak_v):
-            amplitude_peak_v[0] *= 0.5
-            if n % 2 == 0 and len(amplitude_peak_v) > 1:
-                amplitude_peak_v[-1] *= 0.5
-
-        floor_v = 10.0 ** (self.SPECTRUM_FLOOR_DBV / 20.0)
-        amplitude_dbv = 20.0 * np.log10(np.maximum(amplitude_peak_v, floor_v))
-        frequency_hz = np.fft.rfftfreq(n, d=dt)
-
-        phase_deg = np.angle(complex_spectrum, deg=True).astype(float, copy=False)
-        phase_deg = np.asarray(phase_deg, dtype=float).copy()
-        phase_deg[amplitude_dbv < self.PHASE_VISIBLE_FLOOR_DBV] = np.nan
-        return frequency_hz, amplitude_dbv, phase_deg
+        """通过正式纯算法模块一次得到频率、幅度和 wrapped phase。"""
+        spectrum = compute_dcm_spectrum(
+            waveform.time_s,
+            waveform.voltage_v,
+            amplitude_floor_dbv=self.SPECTRUM_FLOOR_DBV,
+            phase_visible_floor_dbv=self.PHASE_VISIBLE_FLOOR_DBV,
+        )
+        return spectrum.frequency_hz, spectrum.amplitude_dbv, spectrum.phase_deg
 
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
         """绘制右上幅度频谱，并缓存同一次 FFT 得到的相位。"""
