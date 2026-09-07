@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .config import AppConfig, config_from_dict
 from .templates import user_data_directory
@@ -15,6 +16,7 @@ class AppState:
     selected_tab: int = 0
     selected_tab_id: str = ""
     selected_template: str = ""
+    workspace: dict[str, Any] = field(default_factory=dict)
 
 
 def state_path() -> Path:
@@ -34,11 +36,15 @@ def load_state() -> AppState | None:
         config_raw = raw.get("config", {})
         if not isinstance(config_raw, dict):
             return None
+        workspace_raw = raw.get("workspace", {})
+        if not isinstance(workspace_raw, dict):
+            workspace_raw = {}
         return AppState(
             config=config_from_dict(config_raw),
             selected_tab=int(raw.get("selected_tab", 0)),
             selected_tab_id=str(raw.get("selected_tab_id", "")),
             selected_template=str(raw.get("selected_template", "")),
+            workspace=workspace_raw,
         )
     except Exception:
         return None
@@ -47,12 +53,13 @@ def load_state() -> AppState | None:
 def save_state(state: AppState) -> Path:
     path = state_path()
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "config": asdict(state.config),
         # 两者同时保存：ID 是正式字段，index 仅为旧版本回退兼容。
         "selected_tab_id": state.selected_tab_id,
         "selected_tab": state.selected_tab,
         "selected_template": state.selected_template,
+        "workspace": state.workspace,
     }
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
