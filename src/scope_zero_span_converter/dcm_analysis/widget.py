@@ -15,17 +15,18 @@ from .plots import (
     draw_time_domain_panel,
     draw_zero_span_panel,
 )
+from .recompute import DcmRecomputeMixin
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
 
 
-class DcmAnalysisWidget(_CompatibilityDcmAnalysisWidget):
+class DcmAnalysisWidget(DcmRecomputeMixin, _CompatibilityDcmAnalysisWidget):
     """Formal DCM analysis widget owning the production four-panel layout.
 
-    Small FFTs remain synchronous to preserve the established instant UI. Large
-    FFTs are dispatched to a single background task; while a task is running,
-    repeated parameter changes keep only the newest pending waveform. Display-
-    only redraws reuse the cached spectrum and never repeat the FFT.
+    Small DCM/Zero Span recomputes and FFTs remain synchronous to preserve the
+    established instant UI. Large DCM+Zero Span recomputes and large FFTs are
+    dispatched to background tasks with latest-wins scheduling. Display-only
+    redraws reuse cached spectrum data and never repeat the FFT.
     """
 
     FFT_BACKGROUND_THRESHOLD_POINTS = 250_000
