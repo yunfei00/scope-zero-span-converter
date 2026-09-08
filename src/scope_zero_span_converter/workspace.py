@@ -9,7 +9,7 @@ from .dcm_sw_generator import DcmSwParameters
 from .dcm_zero_span_link import ZeroSpanProfile
 
 
-_WORKSPACE_SCHEMA_VERSION = 1
+_WORKSPACE_SCHEMA_VERSION = 2
 
 _AXIS_FIELDS = (
     "dcm_y_min",
@@ -58,6 +58,21 @@ def _set_spin(control, value: Any) -> None:
         control.blockSignals(previous)
 
 
+def _clean_path(value: Any) -> str | None:
+    """Return a persisted recent-file path without touching the filesystem.
+
+    Workspace restoration must not depend on a removable drive/network share
+    still being available. The stored path is only used as the next file-dialog
+    starting location; physical parameters are restored from the workspace
+    snapshot itself.
+    """
+
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
 def _main_splitter(widget) -> QSplitter | None:
     splitters = widget.findChildren(QSplitter)
     if not splitters:
@@ -104,6 +119,14 @@ def collect_dcm_analysis_workspace(widget) -> dict[str, Any]:
             "time_a_us": float(marker_a_time.value()) if marker_a_time is not None else None,
             "time_b_enabled": bool(marker_b_enable.isChecked()) if marker_b_enable is not None else False,
             "time_b_us": float(marker_b_time.value()) if marker_b_time is not None else None,
+        },
+        "recent_files": {
+            "dcm_parameters_path": _clean_path(
+                getattr(widget, "current_dcm_parameters_path", None)
+            ),
+            "zero_span_profile_path": _clean_path(
+                getattr(widget, "current_zero_span_profile_path", None)
+            ),
         },
         # Rectangle Zoom / Space history is intentionally omitted. It is a
         # temporary navigation state, not a customer workspace setting.
@@ -198,6 +221,19 @@ def apply_dcm_analysis_workspace(widget, raw: Any) -> bool:
                     control.setChecked(bool(markers[key]))
                 finally:
                     control.blockSignals(previous)
+
+    # Schema v2 introduced explicit recent-file state. Keep schema v1 fully
+    # compatible: no section simply means no remembered dialog location.
+    recent_files = raw.get("recent_files")
+    if isinstance(recent_files, dict):
+        if hasattr(widget, "current_dcm_parameters_path"):
+            widget.current_dcm_parameters_path = _clean_path(
+                recent_files.get("dcm_parameters_path")
+            )
+        if hasattr(widget, "current_zero_span_profile_path"):
+            widget.current_zero_span_profile_path = _clean_path(
+                recent_files.get("zero_span_profile_path")
+            )
 
     # Frequency inputs normally represent an automatically refreshed view. A
     # restored workspace should show the saved input values for this first frame;
