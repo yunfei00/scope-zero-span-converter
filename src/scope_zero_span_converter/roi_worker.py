@@ -8,13 +8,14 @@ import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from .config import AppConfig
-from .waveform_research import WaveformResearchConversion, convert_waveform_region
+from .converter import ConversionResult
+from .waveform_research import convert_waveform_region
 
 
 @dataclass(frozen=True)
 class RoiConversionWorkerResult:
     request_id: int
-    conversion: WaveformResearchConversion
+    conversion: ConversionResult
     origin_s: float
 
 
