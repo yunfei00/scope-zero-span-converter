@@ -19,11 +19,13 @@ from .plots import (
 from .recompute import DcmRecomputeMixin
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
+from .zoom_interaction import ZoomInteractionMixin
 
 
 class DcmAnalysisWidget(
     FrequencyAxisMixin,
     DcmRecomputeMixin,
+    ZoomInteractionMixin,
     _CompatibilityDcmAnalysisWidget,
 ):
     """Formal DCM analysis widget owning the production four-panel layout.
@@ -32,7 +34,8 @@ class DcmAnalysisWidget(
     established instant UI. Large DCM+Zero Span recomputes and large FFTs are
     dispatched to background tasks with latest-wins scheduling. Display-only
     redraws reuse cached spectrum data and never repeat the FFT. Frequency-axis
-    runtime behavior is owned by the formal package rather than legacy v5/v8/v9.
+    and Rectangle-Zoom runtime behavior are owned by the formal package rather
+    than legacy v5/v6/v8/v9 method bodies.
     """
 
     FFT_BACKGROUND_THRESHOLD_POINTS = 250_000
