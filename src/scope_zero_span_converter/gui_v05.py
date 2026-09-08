@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import (
@@ -23,6 +25,7 @@ from .dcm_sw_generator import DcmSwWaveform
 from .diagnostics import export_diagnostic_bundle
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
+from .roi_worker import RoiConversionWorkerResult, RoiConversionWorkerTask
 from .waveform_quality import analyze_time_axis
 
 
@@ -38,7 +41,17 @@ class MainWindow(WaveformResearchMainWindow):
     TAB_DCM_ANALYSIS = "dcm_analysis"
     TAB_BATCH = "batch_conversion"
 
+    ROI_BACKGROUND_THRESHOLD_POINTS = 250_000
+
     def __init__(self) -> None:
+        # Base construction connects its ROI debounce timer to the dynamically
+        # resolved update_region_conversion(), so request-generation state must
+        # exist before super().__init__().
+        self._roi_generation = 0
+        self._roi_active_request_id: int | None = None
+        self._roi_task: RoiConversionWorkerTask | None = None
+        self._roi_pending_payload: tuple | None = None
+
         super().__init__()
         self.setWindowTitle(
             f"Scope Zero Span Converter {__version__} - DCM 综合分析工作台"
@@ -96,14 +109,16 @@ class MainWindow(WaveformResearchMainWindow):
 
     def load_waveform_from_ui(self) -> None:
         """Load through the base workflow, then expose the shared quality report."""
+        # Any in-flight large ROI result belongs to the previously loaded source.
+        # Advancing generation makes it stale immediately, before the new 250 ms
+        # debounce timer fires.
+        self._roi_generation += 1
+        self._roi_pending_payload = None
+
         previous_time = self.waveform_time
         previous_voltage = self.waveform_voltage
         super().load_waveform_from_ui()
 
-        # gui_v04 currently catches load errors internally and deliberately keeps
-        # the previous valid waveform on screen. Only append a quality summary if
-        # a genuinely new waveform object was installed; otherwise a failed load
-        # could misleadingly label the previous waveform as the failed file's PASS.
         if (
             self.waveform_time is previous_time
             and self.waveform_voltage is previous_voltage
@@ -117,6 +132,142 @@ class MainWindow(WaveformResearchMainWindow):
             f"{self.status_label.text()} | 数据质量：{quality.summary()} | "
             f"Nyquist={quality.nyquist_hz/1e6:.6g} MHz"
         )
+
+    # ------------------------------------------------------------------
+    # ROI conversion: small synchronous / large latest-wins worker
+    # ------------------------------------------------------------------
+    def _schedule_region_conversion(self) -> None:
+        if not self.auto_update_roi_check.isChecked():
+            return
+        self._roi_generation += 1
+        self._conversion_timer.start()
+
+    def update_region_conversion(self) -> None:
+        if self.waveform_time is None:
+            return
+        metadata = Path(self.metadata_edit.text().strip())
+        if not metadata.exists():
+            self._roi_generation += 1
+            self._roi_pending_payload = None
+            self.region_conversion = None
+            self._redraw_waveform_and_conversion()
+            self.status_label.setText(
+                "已选择研究区域；选择 metadata.json 后可联动更新下方转换波形"
+            )
+            return
+
+        try:
+            cfg = self.collect_config()
+            if self.current_region is None:
+                t = self.waveform_time
+                v = self.waveform_voltage
+                origin_s = float(t[0])
+            else:
+                t = self._region_time
+                v = self._region_voltage
+                origin_s = self.current_region.start_time_s
+            if t is None or v is None:
+                return
+        except Exception as exc:
+            self.region_conversion = None
+            self._redraw_waveform_and_conversion()
+            self.status_label.setText(f"研究区域转换配置无效：{exc}")
+            return
+
+        if len(t) < self.ROI_BACKGROUND_THRESHOLD_POINTS:
+            # Signal delivery from any older worker cannot interrupt this GUI-thread
+            # calculation; generation checks will reject it afterwards.
+            super().update_region_conversion()
+            return
+
+        request_id = self._roi_generation
+        payload = (request_id, t, v, metadata, cfg, origin_s)
+        self.region_conversion = None
+        self._redraw_waveform_and_conversion()
+
+        if self._roi_task is not None:
+            # Only retain the newest expensive request. Do not pile up FFT jobs
+            # while the customer drags ROI bounds or adjusts Center/RBW.
+            self._roi_pending_payload = payload
+            self.status_label.setText(
+                f"大研究区转换更新已排队：{len(t)} 点；等待当前后台 FFT 完成后只计算最新参数。"
+            )
+            return
+
+        self._start_roi_worker(payload)
+
+    def _start_roi_worker(self, payload: tuple) -> None:
+        request_id, t, v, metadata, cfg, origin_s = payload
+        task = RoiConversionWorkerTask(
+            request_id=request_id,
+            time_s=t,
+            voltage_v=v,
+            metadata_path=metadata,
+            config=cfg,
+            origin_s=origin_s,
+        )
+        task.signals.finished.connect(self._on_roi_worker_finished)
+        task.signals.failed.connect(self._on_roi_worker_failed)
+        self._roi_active_request_id = int(request_id)
+        self._roi_task = task
+        self._roi_pending_payload = None
+        self.status_label.setText(
+            f"大研究区 Zero Span 转换后台计算中：{len(t)} 点；窗口保持响应。"
+        )
+        self._worker_pool.start(task)
+
+    def _release_roi_worker_and_start_pending(self) -> bool:
+        self._roi_active_request_id = None
+        self._roi_task = None
+        pending = self._roi_pending_payload
+        self._roi_pending_payload = None
+        if pending is not None:
+            self._start_roi_worker(pending)
+            return True
+        return False
+
+    def _apply_roi_worker_result(self, payload: RoiConversionWorkerResult) -> None:
+        result = payload.conversion
+        self.region_conversion = (result, payload.origin_s)
+        self._redraw_waveform_and_conversion()
+        sources = result.parameter_sources
+        self.parameter_source_label.setText(
+            "联动转换参数："
+            f"Center {result.center_frequency_hz/1e6:.6g} MHz "
+            f"[{self._source_text(sources['center_frequency_hz'])}]；"
+            f"RBW {result.rbw_hz/1e6:.6g} MHz "
+            f"[{self._source_text(sources['rbw_hz'])}]；"
+            f"VBW {(result.vbw_hz/1e6 if result.vbw_hz is not None else 0):.6g} MHz"
+        )
+        points = len(result.time_s)
+        self.status_label.setText(
+            f"大研究区后台联动转换完成：{points} 点 | "
+            f"Center={result.center_frequency_hz/1e6:.6g} MHz | "
+            f"RBW={result.rbw_hz/1e6:.6g} MHz"
+        )
+
+    def _on_roi_worker_finished(self, payload: RoiConversionWorkerResult) -> None:
+        is_active = payload.request_id == self._roi_active_request_id
+        is_latest = payload.request_id == self._roi_generation
+        pending_exists = self._roi_pending_payload is not None
+
+        if is_active and is_latest and not pending_exists:
+            self._apply_roi_worker_result(payload)
+
+        self._release_roi_worker_and_start_pending()
+
+    def _on_roi_worker_failed(self, request_id: int, message: str) -> None:
+        is_active = request_id == self._roi_active_request_id
+        is_latest = request_id == self._roi_generation
+        pending_exists = self._roi_pending_payload is not None
+
+        if is_active and is_latest and not pending_exists:
+            self.region_conversion = None
+            self._redraw_waveform_and_conversion()
+            self.status_label.setText(f"研究区域后台转换失败：{message}")
+            LOGGER.error("ROI conversion worker failed: %s", message)
+
+        self._release_roi_worker_and_start_pending()
 
     # ------------------------------------------------------------------
     # Non-blocking full conversion
@@ -198,8 +349,6 @@ class MainWindow(WaveformResearchMainWindow):
         row = QHBoxLayout()
         row.addWidget(self.batch_progress, 1)
         row.addWidget(self.cancel_batch_button)
-        # Base v0.4 layout: settings, start-buttons, status, table. Put progress
-        # between the start-buttons and status without editing the legacy class.
         layout.insertLayout(2, row)
 
     def run_batch_conversion(self) -> None:
@@ -340,8 +489,6 @@ class MainWindow(WaveformResearchMainWindow):
     # Diagnostics
     # ------------------------------------------------------------------
     def _install_diagnostic_export_button(self) -> None:
-        """Add customer-support export next to the existing template/log tools."""
-
         group = next(
             (item for item in self.findChildren(QGroupBox) if item.title() == "配置模板"),
             None,
@@ -396,6 +543,10 @@ class MainWindow(WaveformResearchMainWindow):
         )
 
     def _accept_generated_dcm_waveform(self, waveform: DcmSwWaveform) -> None:
+        # An in-flight ROI conversion belongs to the previous research waveform.
+        self._roi_generation += 1
+        self._roi_pending_payload = None
+
         self.waveform_time = np.asarray(waveform.time_s, dtype=float).copy()
         self.waveform_voltage = np.asarray(waveform.voltage_v, dtype=float).copy()
         self.waveform_sample_rate = float(waveform.sample_rate_hz)
