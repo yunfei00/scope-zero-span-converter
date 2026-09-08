@@ -5,8 +5,8 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from .app_state import AppState, load_state, save_state
-from .gui_v05 import MainWindow
 from .logging_utils import get_logger
+from .main_window import MainWindow
 from .workspace import apply_dcm_analysis_workspace, collect_dcm_analysis_workspace
 
 
