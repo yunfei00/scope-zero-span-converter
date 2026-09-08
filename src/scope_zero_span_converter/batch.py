@@ -11,7 +11,8 @@ import pandas as pd
 
 from . import __version__
 from .config import AppConfig
-from .converter import convert, save_result
+from .converter import convert
+from .headless_export import save_result_headless
 
 
 @dataclass(frozen=True)
@@ -203,7 +204,7 @@ def run_batch(
                 job.metadata_path,
                 item_config,
             )
-            save_result(
+            save_result_headless(
                 conversion,
                 job.waveform_path,
                 item_config,
