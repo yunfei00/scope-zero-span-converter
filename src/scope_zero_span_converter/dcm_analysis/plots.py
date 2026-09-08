@@ -47,7 +47,6 @@ def display_indices_preserve_extrema(
         segment = y[left:right]
         finite = np.isfinite(segment)
         if not np.any(finite):
-            # Keep one location so long NaN regions still retain their X extent.
             selected.append(left)
             continue
         finite_positions = np.flatnonzero(finite)
@@ -56,11 +55,54 @@ def display_indices_preserve_extrema(
         selected.append(left + int(finite_positions[int(np.argmax(finite_values))]))
 
     indices = np.unique(np.asarray(selected, dtype=int))
-    # Defensive guard for pathological all-NaN bucket combinations.
     if len(indices) > limit:
         keep = np.linspace(0, len(indices) - 1, limit).astype(int)
         indices = indices[keep]
     return indices
+
+
+def display_indices_for_range(
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+    x_range: tuple[float, float] | None,
+    *,
+    max_points: int = MAX_DISPLAY_POINTS,
+) -> np.ndarray:
+    """Reduce only the currently visible X range, restoring detail on Zoom.
+
+    X must be monotonically increasing, which is true for validated waveform time
+    and FFT frequency axes. One sample outside each visible edge is retained when
+    possible so line continuity at the viewport boundary is not visually broken.
+    """
+
+    x = np.asarray(x_values, dtype=float)
+    y = np.asarray(y_values, dtype=float)
+    if x.ndim != 1 or y.ndim != 1 or len(x) != len(y):
+        raise ValueError("display x/y must be one-dimensional and equally sized")
+    if len(x) == 0:
+        return np.empty(0, dtype=int)
+    if x_range is None:
+        return display_indices_preserve_extrema(y, max_points=max_points)
+
+    low, high = map(float, x_range)
+    if high < low:
+        low, high = high, low
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+        return display_indices_preserve_extrema(y, max_points=max_points)
+
+    start = int(np.searchsorted(x, low, side="left"))
+    stop = int(np.searchsorted(x, high, side="right"))
+    start = max(0, start - 1)
+    stop = min(len(x), stop + 1)
+    if stop <= start:
+        nearest = int(np.clip(np.searchsorted(x, low), 0, len(x) - 1))
+        return np.asarray([nearest], dtype=int)
+
+    local = display_indices_preserve_extrema(
+        y[start:stop],
+        max_points=max_points,
+    )
+    return start + local
 
 
 def _display_suffix(reduced: bool) -> str:
@@ -72,6 +114,7 @@ def draw_time_domain_panel(
     waveform: DcmSwWaveform | None,
     *,
     error: str | None = None,
+    display_time_range_us: tuple[float, float] | None = None,
 ) -> None:
     """Draw the DCM time-domain panel without applying GUI axis policy."""
 
@@ -87,9 +130,22 @@ def draw_time_domain_panel(
     time_s = np.asarray(waveform.time_s, dtype=float)
     voltage_v = np.asarray(waveform.voltage_v, dtype=float)
     ideal_v = np.asarray(waveform.ideal_voltage_v, dtype=float)
-    indices = display_indices_preserve_extrema(voltage_v)
-    reduced = len(indices) < len(time_s)
     x_us = time_s * 1e6
+    indices = display_indices_for_range(
+        x_us,
+        voltage_v,
+        display_time_range_us,
+    )
+    visible_count = (
+        len(time_s)
+        if display_time_range_us is None
+        else max(
+            0,
+            int(np.searchsorted(x_us, max(display_time_range_us), side="right"))
+            - int(np.searchsorted(x_us, min(display_time_range_us), side="left")),
+        )
+    )
+    reduced = len(indices) < visible_count
 
     ax.plot(x_us[indices], voltage_v[indices], linewidth=0.9, label="当前 DCM SW")
     ax.plot(
@@ -112,6 +168,7 @@ def draw_zero_span_panel(
     zero_span: DcmZeroSpanResult | None,
     *,
     error: str | None = None,
+    display_time_range_us: tuple[float, float] | None = None,
 ) -> None:
     """Draw fixed-center Zero Span power-versus-time data."""
 
@@ -149,12 +206,25 @@ def draw_zero_span_panel(
         ax.set_title("Zero Span（等待有效转换参数）")
         return
 
-    zero_time_s = np.asarray(zero_span.time_s, dtype=float)
+    zero_time_us = np.asarray(zero_span.time_s, dtype=float) * 1e6
     amplitude_dbm = np.asarray(zero_span.amplitude_dbm, dtype=float)
-    indices = display_indices_preserve_extrema(amplitude_dbm)
-    reduced = len(indices) < len(zero_time_s)
+    indices = display_indices_for_range(
+        zero_time_us,
+        amplitude_dbm,
+        display_time_range_us,
+    )
+    visible_count = (
+        len(zero_time_us)
+        if display_time_range_us is None
+        else max(
+            0,
+            int(np.searchsorted(zero_time_us, max(display_time_range_us), side="right"))
+            - int(np.searchsorted(zero_time_us, min(display_time_range_us), side="left")),
+        )
+    )
+    reduced = len(indices) < visible_count
     ax.plot(
-        zero_time_s[indices] * 1e6,
+        zero_time_us[indices],
         amplitude_dbm[indices],
         linewidth=0.9,
         label="等效 FSW Zero Span",
@@ -203,10 +273,32 @@ def _draw_center_rbw_reference(
         )
 
 
-def _spectrum_display_indices(spectrum: DcmSpectrum) -> np.ndarray:
+def _spectrum_display_indices(
+    spectrum: DcmSpectrum,
+    display_frequency_range_mhz: tuple[float, float] | None,
+) -> np.ndarray:
     # Magnitude drives the shared display indices so magnitude and wrapped phase
     # use exactly the same X samples after rendering reduction.
-    return display_indices_preserve_extrema(spectrum.amplitude_dbv)
+    frequency_mhz = np.asarray(spectrum.frequency_hz, dtype=float) / 1e6
+    return display_indices_for_range(
+        frequency_mhz,
+        spectrum.amplitude_dbv,
+        display_frequency_range_mhz,
+    )
+
+
+def _visible_frequency_count(
+    frequency_mhz: np.ndarray,
+    display_range: tuple[float, float] | None,
+) -> int:
+    if display_range is None:
+        return len(frequency_mhz)
+    low, high = sorted(map(float, display_range))
+    return max(
+        0,
+        int(np.searchsorted(frequency_mhz, high, side="right"))
+        - int(np.searchsorted(frequency_mhz, low, side="left")),
+    )
 
 
 def draw_magnitude_spectrum_panel(
@@ -215,6 +307,7 @@ def draw_magnitude_spectrum_panel(
     *,
     center_frequency_hz: float,
     rbw_hz: float,
+    display_frequency_range_mhz: tuple[float, float] | None = None,
 ) -> None:
     """Draw DCM FFT magnitude and Zero Span Center/RBW references."""
 
@@ -235,9 +328,9 @@ def draw_magnitude_spectrum_panel(
 
     frequency_hz = np.asarray(spectrum.frequency_hz, dtype=float)
     amplitude_dbv = np.asarray(spectrum.amplitude_dbv, dtype=float)
-    indices = _spectrum_display_indices(spectrum)
-    reduced = len(indices) < len(frequency_hz)
     freq_mhz = frequency_hz / 1e6
+    indices = _spectrum_display_indices(spectrum, display_frequency_range_mhz)
+    reduced = len(indices) < _visible_frequency_count(freq_mhz, display_frequency_range_mhz)
     ax.plot(freq_mhz[indices], amplitude_dbv[indices], linewidth=0.85, label="DCM FFT")
     ax.set_xlim(float(freq_mhz[0]), float(freq_mhz[-1]))
     ax.set_xlabel("频率 (MHz)")
@@ -259,6 +352,7 @@ def draw_phase_spectrum_panel(
     *,
     center_frequency_hz: float,
     rbw_hz: float,
+    display_frequency_range_mhz: tuple[float, float] | None = None,
 ) -> None:
     """Draw wrapped phase using the exact same frequency bins as magnitude."""
 
@@ -281,9 +375,9 @@ def draw_phase_spectrum_panel(
 
     frequency_hz = np.asarray(spectrum.frequency_hz, dtype=float)
     phase_deg = np.asarray(spectrum.phase_deg, dtype=float)
-    indices = _spectrum_display_indices(spectrum)
-    reduced = len(indices) < len(frequency_hz)
     freq_mhz = frequency_hz / 1e6
+    indices = _spectrum_display_indices(spectrum, display_frequency_range_mhz)
+    reduced = len(indices) < _visible_frequency_count(freq_mhz, display_frequency_range_mhz)
     ax.plot(freq_mhz[indices], phase_deg[indices], linewidth=0.8, label="DCM Phase")
     ax.set_xlabel("频率 (MHz)")
     ax.set_ylabel("相位 (°)")
@@ -308,6 +402,7 @@ def draw_phase_spectrum_panel(
 __all__ = [
     "MAX_DISPLAY_POINTS",
     "display_indices_preserve_extrema",
+    "display_indices_for_range",
     "draw_time_domain_panel",
     "draw_zero_span_panel",
     "draw_magnitude_spectrum_panel",
