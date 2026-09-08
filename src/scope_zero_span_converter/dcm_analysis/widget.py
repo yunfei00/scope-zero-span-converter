@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from ..dcm_analysis_widget import DcmAnalysisWidget as _CompatibilityDcmAnalysisWidget
 from ..dcm_sw_generator import DcmSwWaveform, load_dcm_sw_parameters, save_dcm_sw_parameters
 from ..dcm_zero_span_link import load_zero_span_profile, save_zero_span_profile
+from .frequency_axis import FrequencyAxisMixin
 from .plots import (
     draw_magnitude_spectrum_panel,
     draw_phase_spectrum_panel,
@@ -20,13 +21,18 @@ from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
 
 
-class DcmAnalysisWidget(DcmRecomputeMixin, _CompatibilityDcmAnalysisWidget):
+class DcmAnalysisWidget(
+    FrequencyAxisMixin,
+    DcmRecomputeMixin,
+    _CompatibilityDcmAnalysisWidget,
+):
     """Formal DCM analysis widget owning the production four-panel layout.
 
     Small DCM/Zero Span recomputes and FFTs remain synchronous to preserve the
     established instant UI. Large DCM+Zero Span recomputes and large FFTs are
     dispatched to background tasks with latest-wins scheduling. Display-only
-    redraws reuse cached spectrum data and never repeat the FFT.
+    redraws reuse cached spectrum data and never repeat the FFT. Frequency-axis
+    runtime behavior is owned by the formal package rather than legacy v5/v8/v9.
     """
 
     FFT_BACKGROUND_THRESHOLD_POINTS = 250_000
