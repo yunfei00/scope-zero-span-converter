@@ -5,9 +5,9 @@ from PySide6.QtWidgets import QFileDialog, QGroupBox, QMessageBox, QPushButton
 
 from . import __version__
 from .dcm_analysis.widget import DcmAnalysisWidget
-from .dcm_parameter_extractor_widget_v7 import DcmParameterExtractorWidget
+from .dcm_extractor.widget import DcmParameterExtractorWidget
+from .dcm_generator.widget import DcmSwGeneratorWidget
 from .dcm_sw_generator import DcmSwWaveform
-from .dcm_sw_generator_widget_v3 import DcmSwGeneratorWidget
 from .diagnostics import export_diagnostic_bundle
 from .gui_v04 import MainWindow as WaveformResearchMainWindow
 from .logging_utils import get_logger
