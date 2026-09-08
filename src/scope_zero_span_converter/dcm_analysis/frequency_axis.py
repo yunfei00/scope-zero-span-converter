@@ -12,8 +12,6 @@ class FrequencyAxisMixin:
     """Production frequency-axis behavior independent of legacy v5/v8/v9 logic."""
 
     def __init__(self, *args, **kwargs) -> None:
-        # Legacy constructors can dynamically redraw before their own v8 flag is
-        # initialized, so the formal entry establishes it first.
         self._frequency_manual_redraw_once = False
         super().__init__(*args, **kwargs)
 
@@ -124,6 +122,16 @@ class FrequencyAxisMixin:
         self._frequency_manual_redraw_once = True
         try:
             self._redraw(zero_span_error=self.current_zero_span_error)
+            # The normal full view may be display-decimated. If the customer
+            # manually types a narrow frequency range, immediately repopulate the
+            # plotted magnitude/phase lines from the complete cached spectrum for
+            # that viewport rather than merely zooming the already-decimated line.
+            refresh_view = getattr(self, "_refresh_frequency_display_for_range", None)
+            if callable(refresh_view) and all(
+                hasattr(self, name) for name in ("freq_x_min", "freq_x_max")
+            ):
+                refresh_view((self.freq_x_min.value(), self.freq_x_max.value()))
+                self.canvas.draw_idle()
         finally:
             self._frequency_manual_redraw_once = False
 
