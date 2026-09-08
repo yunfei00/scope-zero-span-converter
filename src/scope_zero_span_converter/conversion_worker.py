@@ -51,10 +51,8 @@ class FullConversionWorkerTask(QRunnable):
                 raise FileNotFoundError(f"找不到 FSW 实测 CSV：{reference}")
 
             conversion = convert(waveform, metadata, cfg)
-            # The Agg-based saver preserves PNG/CSV/metadata outputs without
-            # creating a Qt Matplotlib figure manager in this worker thread.
-            requested_show_plot = cfg.output.show_plot
-            cfg.output.show_plot = False
+            # Agg output ignores interactive show_plot without mutating the
+            # customer configuration, so metadata keeps the original snapshot.
             save_result_headless(
                 conversion,
                 waveform,
@@ -62,7 +60,6 @@ class FullConversionWorkerTask(QRunnable):
                 metadata_path=metadata,
                 reference_fsw_path=reference,
             )
-            cfg.output.show_plot = requested_show_plot
         except Exception as exc:
             self.signals.failed.emit(str(exc))
             return
