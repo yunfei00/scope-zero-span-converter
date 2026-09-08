@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .batch import BatchItemResult, BatchRunResult
 from .batch_worker import BatchWorkerTask
+from .conversion_worker import FullConversionWorkerResult, FullConversionWorkerTask
 from .dcm_analysis.widget import DcmAnalysisWidget
 from .dcm_extractor.widget import DcmParameterExtractorWidget
 from .dcm_generator.widget import DcmSwGeneratorWidget
@@ -43,7 +44,8 @@ class MainWindow(WaveformResearchMainWindow):
             f"Scope Zero Span Converter {__version__} - DCM 综合分析工作台"
         )
 
-        self._batch_thread_pool = QThreadPool.globalInstance()
+        self._worker_pool = QThreadPool.globalInstance()
+        self._conversion_task: FullConversionWorkerTask | None = None
         self._batch_task: BatchWorkerTask | None = None
         self._install_batch_worker_controls()
 
@@ -117,6 +119,63 @@ class MainWindow(WaveformResearchMainWindow):
         )
 
     # ------------------------------------------------------------------
+    # Non-blocking full conversion
+    # ------------------------------------------------------------------
+    def run_full_conversion(self) -> None:
+        if self._conversion_task is not None:
+            return
+        try:
+            cfg = self.collect_config()
+        except Exception as exc:
+            LOGGER.exception("完整转换配置无效")
+            QMessageBox.critical(self, "转换配置无效", str(exc))
+            return
+
+        task = FullConversionWorkerTask(cfg)
+        task.signals.finished.connect(self._on_full_conversion_finished)
+        task.signals.failed.connect(self._on_full_conversion_failed)
+        self._conversion_task = task
+        self.convert_button.setEnabled(False)
+        self.status_label.setText(
+            "完整转换已进入后台：正在执行 Zero Span 转换、结果保存和可选 PNG 输出；窗口保持响应。"
+        )
+        self._worker_pool.start(task)
+
+    def _release_full_conversion_task(self) -> None:
+        self._conversion_task = None
+        self.convert_button.setEnabled(True)
+
+    def _on_full_conversion_finished(self, payload: FullConversionWorkerResult) -> None:
+        self._release_full_conversion_task()
+        self.config = payload.config
+        conversion = payload.conversion
+        extras: list[str] = []
+        if conversion.output_csv is not None:
+            extras.append("CSV")
+        if conversion.output_plot is not None:
+            extras.append("PNG")
+        if conversion.output_metadata is not None:
+            extras.append("metadata")
+        if conversion.comparison is not None:
+            extras.append(f"FSW MAE={conversion.comparison.mae_db:.3f} dB")
+        detail = " | " + ", ".join(extras) if extras else ""
+        self.status_label.setText(
+            f"完整转换完成 | 输出：{payload.config.output.directory}{detail}"
+        )
+        self._schedule_region_conversion()
+        LOGGER.info(
+            "full conversion worker complete output=%s points=%d",
+            payload.config.output.directory,
+            len(conversion.time_s),
+        )
+
+    def _on_full_conversion_failed(self, message: str) -> None:
+        self._release_full_conversion_task()
+        self.status_label.setText(f"完整转换失败：{message}")
+        LOGGER.error("full conversion worker failed: %s", message)
+        QMessageBox.critical(self, "转换失败", message)
+
+    # ------------------------------------------------------------------
     # Non-blocking batch conversion
     # ------------------------------------------------------------------
     def _install_batch_worker_controls(self) -> None:
@@ -168,7 +227,7 @@ class MainWindow(WaveformResearchMainWindow):
         )
         self.batch_progress.setRange(0, 0)
         self.batch_progress.setFormat("正在扫描任务…")
-        self._batch_thread_pool.start(task)
+        self._worker_pool.start(task)
 
     def cancel_batch_conversion(self) -> None:
         task = self._batch_task
