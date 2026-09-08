@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtWidgets import QFileDialog, QGroupBox, QMessageBox, QPushButton
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTableWidgetItem,
+)
 
 from . import __version__
+from .batch import BatchItemResult, BatchRunResult
+from .batch_worker import BatchWorkerTask
 from .dcm_analysis.widget import DcmAnalysisWidget
 from .dcm_extractor.widget import DcmParameterExtractorWidget
 from .dcm_generator.widget import DcmSwGeneratorWidget
@@ -31,6 +42,10 @@ class MainWindow(WaveformResearchMainWindow):
         self.setWindowTitle(
             f"Scope Zero Span Converter {__version__} - DCM 综合分析工作台"
         )
+
+        self._batch_thread_pool = QThreadPool.globalInstance()
+        self._batch_task: BatchWorkerTask | None = None
+        self._install_batch_worker_controls()
 
         self.dcm_generator_tab = DcmSwGeneratorWidget(self)
         self._enable_ideal_edge_controls()
@@ -96,14 +111,175 @@ class MainWindow(WaveformResearchMainWindow):
             return
 
         quality = analyze_time_axis(self.waveform_time)
-        # load_waveform() has already applied the hard quality gate. This line is
-        # customer-facing traceability: show the actual sampling assumptions used
-        # by FFT / Zero Span instead of leaving them implicit.
         self.status_label.setText(
             f"{self.status_label.text()} | 数据质量：{quality.summary()} | "
             f"Nyquist={quality.nyquist_hz/1e6:.6g} MHz"
         )
 
+    # ------------------------------------------------------------------
+    # Non-blocking batch conversion
+    # ------------------------------------------------------------------
+    def _install_batch_worker_controls(self) -> None:
+        layout = self.batch_tab.layout()
+        if layout is None:
+            return
+
+        self.batch_progress = QProgressBar(self.batch_tab)
+        self.batch_progress.setRange(0, 1)
+        self.batch_progress.setValue(0)
+        self.batch_progress.setFormat("尚未运行")
+
+        self.cancel_batch_button = QPushButton("停止后续任务", self.batch_tab)
+        self.cancel_batch_button.setEnabled(False)
+        self.cancel_batch_button.setToolTip(
+            "协作式停止：当前正在转换/保存的单个任务会先完整结束，然后不再启动下一项。"
+        )
+        self.cancel_batch_button.clicked.connect(self.cancel_batch_conversion)
+
+        row = QHBoxLayout()
+        row.addWidget(self.batch_progress, 1)
+        row.addWidget(self.cancel_batch_button)
+        # Base v0.4 layout: settings, start-buttons, status, table. Put progress
+        # between the start-buttons and status without editing the legacy class.
+        layout.insertLayout(2, row)
+
+    def run_batch_conversion(self) -> None:
+        if self._batch_task is not None:
+            return
+        try:
+            cfg = self.collect_config()
+        except Exception as exc:
+            LOGGER.exception("批量转换配置无效")
+            QMessageBox.critical(self, "批量转换配置无效", str(exc))
+            return
+
+        task = BatchWorkerTask(cfg)
+        task.signals.started.connect(self._on_batch_started)
+        task.signals.progress.connect(self._on_batch_progress)
+        task.signals.finished.connect(self._on_batch_finished)
+        task.signals.failed.connect(self._on_batch_failed)
+
+        self._batch_task = task
+        self.run_batch_button.setEnabled(False)
+        self.scan_batch_button.setEnabled(False)
+        self.cancel_batch_button.setEnabled(True)
+        self.batch_status_label.setText(
+            "批量转换已进入后台；窗口可继续响应。可点击“停止后续任务”在当前任务完成后停止。"
+        )
+        self.batch_progress.setRange(0, 0)
+        self.batch_progress.setFormat("正在扫描任务…")
+        self._batch_thread_pool.start(task)
+
+    def cancel_batch_conversion(self) -> None:
+        task = self._batch_task
+        if task is None:
+            return
+        task.cancel()
+        self.cancel_batch_button.setEnabled(False)
+        self.batch_status_label.setText(
+            "已请求停止：当前正在执行的任务会完整转换并保存；完成后不再启动下一项。"
+        )
+        self.batch_progress.setFormat("停止已请求：等待当前任务完成…")
+
+    def _on_batch_started(self, total: int) -> None:
+        total = max(0, int(total))
+        self.batch_table.clearContents()
+        self.batch_table.setRowCount(total)
+        self.batch_progress.setRange(0, max(total, 1))
+        self.batch_progress.setValue(0)
+        self.batch_progress.setFormat(
+            "没有发现任务" if total == 0 else f"0 / {total}（0%）"
+        )
+        self.batch_status_label.setText(f"已发现 {total} 个批量任务，正在后台执行。")
+
+    @staticmethod
+    def _batch_item_values(item: BatchItemResult) -> list[str]:
+        return [
+            item.name,
+            item.status,
+            "" if item.center_frequency_hz is None else f"{item.center_frequency_hz/1e6:.6g}",
+            "" if item.rbw_hz is None else f"{item.rbw_hz/1e6:.6g}",
+            "" if item.mae_db is None else f"{item.mae_db:.4f}",
+            item.output_directory,
+            item.error or "",
+        ]
+
+    def _on_batch_progress(
+        self,
+        current: int,
+        total: int,
+        item: BatchItemResult,
+    ) -> None:
+        row = max(0, int(current) - 1)
+        if row >= self.batch_table.rowCount():
+            self.batch_table.setRowCount(row + 1)
+        for column, value in enumerate(self._batch_item_values(item)):
+            self.batch_table.setItem(row, column, QTableWidgetItem(value))
+
+        total = max(int(total), 1)
+        current = min(max(int(current), 0), total)
+        self.batch_progress.setRange(0, total)
+        self.batch_progress.setValue(current)
+        percent = int(round(100.0 * current / total))
+        self.batch_progress.setFormat(f"{current} / {total}（{percent}%）")
+        self.batch_status_label.setText(
+            f"正在批量转换：{current}/{total} | 最近任务 {item.name}：{item.status}"
+        )
+
+    def _release_batch_task(self) -> None:
+        self._batch_task = None
+        self.run_batch_button.setEnabled(True)
+        self.scan_batch_button.setEnabled(True)
+        self.cancel_batch_button.setEnabled(False)
+
+    def _on_batch_finished(self, result: BatchRunResult) -> None:
+        self._release_batch_task()
+        self.batch_table.resizeColumnsToContents()
+        if result.jobs_found:
+            self.batch_progress.setRange(0, result.jobs_found)
+            self.batch_progress.setValue(result.jobs_processed)
+        else:
+            self.batch_progress.setRange(0, 1)
+            self.batch_progress.setValue(0)
+
+        if result.cancelled:
+            self.batch_progress.setFormat(
+                f"已停止：完成 {result.jobs_processed} / {result.jobs_found}"
+            )
+            self.batch_status_label.setText(
+                f"批量转换已按请求停止：发现 {result.jobs_found} 个，"
+                f"已处理 {result.jobs_processed} 个，成功 {result.succeeded} 个，"
+                f"失败 {result.failed} 个。已完成任务的输出和汇总均已保留。"
+            )
+        else:
+            self.batch_progress.setFormat(
+                f"完成 {result.jobs_processed} / {result.jobs_found}"
+            )
+            self.batch_status_label.setText(
+                f"批量转换完成：共 {result.jobs_found} 个，成功 {result.succeeded} 个，"
+                f"失败 {result.failed} 个。汇总目录：{result.output_directory}"
+            )
+        LOGGER.info(
+            "batch worker complete found=%d processed=%d succeeded=%d failed=%d cancelled=%s",
+            result.jobs_found,
+            result.jobs_processed,
+            result.succeeded,
+            result.failed,
+            result.cancelled,
+        )
+
+    def _on_batch_failed(self, message: str) -> None:
+        self._release_batch_task()
+        self.batch_progress.setRange(0, 1)
+        self.batch_progress.setValue(0)
+        self.batch_progress.setFormat("批量转换失败")
+        self.batch_status_label.setText(f"批量转换失败：{message}")
+        LOGGER.error("batch worker failed: %s", message)
+        QMessageBox.critical(self, "批量转换失败", message)
+
+    # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
     def _install_diagnostic_export_button(self) -> None:
         """Add customer-support export next to the existing template/log tools."""
 
