@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -52,6 +53,16 @@ class BatchRunResult:
     items: list[BatchItemResult]
     summary_csv: Path | None = None
     summary_json: Path | None = None
+    cancelled: bool = False
+
+    @property
+    def jobs_processed(self) -> int:
+        return len(self.items)
+
+
+BatchStartCallback = Callable[[int], None]
+BatchProgressCallback = Callable[[int, int, BatchItemResult], None]
+BatchCancelCheck = Callable[[], bool]
 
 
 def discover_batch_jobs(config: AppConfig) -> list[BatchJob]:
@@ -111,7 +122,7 @@ def _write_summary(result: BatchRunResult, config: AppConfig) -> BatchRunResult:
     if config.batch.save_summary_json:
         path = result.output_directory / "batch_summary.json"
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "software": {
                 "name": "scope-zero-span-converter",
                 "version": __version__,
@@ -120,8 +131,10 @@ def _write_summary(result: BatchRunResult, config: AppConfig) -> BatchRunResult:
             "source_directory": str(result.source_directory),
             "output_directory": str(result.output_directory),
             "jobs_found": result.jobs_found,
+            "jobs_processed": result.jobs_processed,
             "succeeded": result.succeeded,
             "failed": result.failed,
+            "cancelled": result.cancelled,
             "batch_config": asdict(config.batch),
             "items": rows,
         }
@@ -134,7 +147,23 @@ def _write_summary(result: BatchRunResult, config: AppConfig) -> BatchRunResult:
     return result
 
 
-def run_batch(config: AppConfig) -> BatchRunResult:
+def run_batch(
+    config: AppConfig,
+    *,
+    start_callback: BatchStartCallback | None = None,
+    progress_callback: BatchProgressCallback | None = None,
+    should_cancel: BatchCancelCheck | None = None,
+) -> BatchRunResult:
+    """Run batch conversion with optional progress and cooperative cancellation.
+
+    Existing callers can keep calling ``run_batch(config)`` unchanged.
+
+    Cancellation is intentionally checked *between* jobs. A conversion already
+    running is allowed to finish and save atomically; the next job will not be
+    started after cancellation is requested. This avoids leaving half-written
+    customer outputs while still making a long multi-job batch stoppable.
+    """
+
     config.validate()
     source_root = Path(config.batch.source_directory).expanduser()
     output_root = Path(config.batch.output_directory).expanduser()
@@ -149,7 +178,14 @@ def run_batch(config: AppConfig) -> BatchRunResult:
         items=[],
     )
 
+    if start_callback is not None:
+        start_callback(len(jobs))
+
     for index, job in enumerate(jobs, start=1):
+        if should_cancel is not None and should_cancel():
+            result.cancelled = True
+            break
+
         relative = job.directory.relative_to(source_root)
         item_output = output_root / relative
         item_config = deepcopy(config)
@@ -177,38 +213,45 @@ def run_batch(config: AppConfig) -> BatchRunResult:
 
             comparison = conversion.comparison
             quality = conversion.waveform_quality
-            result.items.append(
-                BatchItemResult(
-                    name=job.name,
-                    source_directory=str(job.directory),
-                    status="success",
-                    output_directory=str(item_output),
-                    center_frequency_hz=conversion.center_frequency_hz,
-                    rbw_hz=conversion.rbw_hz,
-                    vbw_hz=conversion.vbw_hz,
-                    sample_rate_hz=conversion.sample_rate_hz,
-                    quality_status=quality.status,
-                    dt_max_deviation_percent=quality.max_dt_deviation_fraction * 100.0,
-                    max_gap_ratio=quality.max_gap_ratio,
-                    mae_db=comparison.mae_db if comparison else None,
-                    rmse_db=comparison.rmse_db if comparison else None,
-                    bias_db=comparison.bias_db if comparison else None,
-                    correlation=comparison.correlation if comparison else None,
-                )
+            item_result = BatchItemResult(
+                name=job.name,
+                source_directory=str(job.directory),
+                status="success",
+                output_directory=str(item_output),
+                center_frequency_hz=conversion.center_frequency_hz,
+                rbw_hz=conversion.rbw_hz,
+                vbw_hz=conversion.vbw_hz,
+                sample_rate_hz=conversion.sample_rate_hz,
+                quality_status=quality.status,
+                dt_max_deviation_percent=quality.max_dt_deviation_fraction * 100.0,
+                max_gap_ratio=quality.max_gap_ratio,
+                mae_db=comparison.mae_db if comparison else None,
+                rmse_db=comparison.rmse_db if comparison else None,
+                bias_db=comparison.bias_db if comparison else None,
+                correlation=comparison.correlation if comparison else None,
             )
+            result.items.append(item_result)
             result.succeeded += 1
         except Exception as exc:
-            result.items.append(
-                BatchItemResult(
-                    name=job.name,
-                    source_directory=str(job.directory),
-                    status="failed",
-                    output_directory=str(item_output),
-                    error=str(exc),
-                )
+            item_result = BatchItemResult(
+                name=job.name,
+                source_directory=str(job.directory),
+                status="failed",
+                output_directory=str(item_output),
+                error=str(exc),
             )
+            result.items.append(item_result)
             result.failed += 1
-            if not config.batch.continue_on_error:
-                break
+
+        if progress_callback is not None:
+            progress_callback(index, len(jobs), item_result)
+
+        if item_result.status == "failed" and not config.batch.continue_on_error:
+            break
+
+    # A cancel requested while the final active job was running should still be
+    # visible in the result even though there is no next loop iteration.
+    if should_cancel is not None and should_cancel() and result.jobs_processed < result.jobs_found:
+        result.cancelled = True
 
     return _write_summary(result, config)
