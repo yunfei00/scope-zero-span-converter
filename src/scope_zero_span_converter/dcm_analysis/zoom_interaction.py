@@ -146,10 +146,9 @@ class ZoomInteractionMixin:
         if sender is None or sender in dcm_axis_controls:
             self._clear_zoom_target("time")
 
-        # Do not call the historical v6 implementation. The next implementation
-        # in MRO owns only the fixed display-axis redraw behavior.
-        parent_handler = super()._on_axis_display_changed
-        parent_handler(*_args)
+        # Y-axis controls are display-only. Repaint directly instead of calling
+        # through the historical v6->v2 callback chain.
+        self._redraw(zero_span_error=self.current_zero_span_error)
 
 
 __all__ = ["ZoomInteractionMixin"]
