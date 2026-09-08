@@ -7,7 +7,8 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from .config import AppConfig
-from .converter import ConversionResult, convert, save_result
+from .converter import ConversionResult, convert
+from .headless_export import save_result_headless
 
 
 @dataclass(frozen=True)
@@ -50,11 +51,11 @@ class FullConversionWorkerTask(QRunnable):
                 raise FileNotFoundError(f"找不到 FSW 实测 CSV：{reference}")
 
             conversion = convert(waveform, metadata, cfg)
-            # A Qt desktop worker must never call pyplot.show(). The original GUI
-            # already suppressed show_plot during save; preserve that behavior.
+            # The Agg-based saver preserves PNG/CSV/metadata outputs without
+            # creating a Qt Matplotlib figure manager in this worker thread.
             requested_show_plot = cfg.output.show_plot
             cfg.output.show_plot = False
-            save_result(
+            save_result_headless(
                 conversion,
                 waveform,
                 cfg,
