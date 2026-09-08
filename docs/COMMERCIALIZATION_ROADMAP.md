@@ -48,7 +48,7 @@
 
 目标：把快速迭代阶段形成的多层 `v2...v10` 继承结构整理为正式可维护模块。
 
-### 目标结构
+### 当前正式结构
 
 ```text
 src/scope_zero_span_converter/
@@ -58,12 +58,16 @@ src/scope_zero_span_converter/
     spectrum.py
     plots.py
     axis.py
+    frequency_axis.py
     zoom.py
+    zoom_interaction.py
     peaks.py
     markers.py
     time_markers.py
     exporter.py
     worker.py
+    recompute.py
+    recompute_worker.py
   dcm_generator/
     __init__.py
     widget.py
@@ -84,13 +88,17 @@ src/scope_zero_span_converter/
 - [x] 抽离综合分析导出逻辑到 `dcm_analysis/exporter.py`，GUI 只负责选择目录和传入当前状态。
 - [x] 抽离四图绘制层到 `dcm_analysis/plots.py`；正式 widget 已接管 2×2 布局，左列共享绝对时间，右列共享同一 FFT 频率轴。
 - [x] DCM Generator / Extractor 建立正式 `dcm_generator/`、`dcm_extractor/` 入口；主界面不再直接引用 `*_v3` / `*_v7`。
-- [ ] 将 v4~v10 剩余控件、坐标回填与交互行为合并到正式 widget；当前仍通过兼容父类复用已验证行为。
+- [x] 正式 `frequency_axis.py` 接管频域自动适配、手动当前帧、范围/步长回填和频域 Zoom 清理；生产运行逻辑不再依赖 v5/v8/v9 方法体。
+- [x] 正式 `zoom_interaction.py` 接管 Rectangle Zoom、Space 多级返回、Zoom 范围应用和显示轴变更后的 Zoom 清理；生产运行逻辑不再依赖 v6 方法体。
+- [x] 正式 `recompute.py` / `recompute_worker.py` 接管大 DCM + Zero Span 的 latest-wins 后台联动调度。
+- [ ] 将历史链中剩余“控件构造”职责移入正式模块；当前 v2/v5/v6 等仍在构造期提供已验证控件和初始信号连接。
 - [ ] 保留旧模块一段兼容期后，正式测试逐步退出对旧版本模块的直接引用。
 
 ### 验收
 
 - DCM 三个主页面均从无版本号正式 package 入口进入。
 - 四视图绘制不再由 v4/v10 的 `_redraw` / 频谱绘制实现承担。
+- 正式入口已接管频域坐标、Zoom 和大数据联动重计算运行逻辑。
 - 四视图行为与 v0.7 完全一致。
 - 旧 JSON / CSV 兼容测试全部通过。
 - 不再新增版本号 widget 文件。
@@ -169,13 +177,14 @@ src/scope_zero_span_converter/
 
 - [x] DCM 大波形 FFT 放入 Worker：默认 ≥250k 点后台计算；小波形保留即时同步体验。
 - [x] 坐标/Marker 纯显示重画复用 FFT 缓存，不重复做 FFT。
+- [x] DCM 大波形生成 + Zero Span DDC/RBW/VBW：默认 ≥250k 点后台联动；连续参数变化采用 latest-wins，旧结果不得覆盖新控件状态。
 - [x] DCM 全局联合精修放入 Worker，移除 GUI 线程中的长时间优化计算。
 - [x] 批量转换放入 Worker，并逐项实时更新表格和 Progress。
 - [x] 批量转换支持协作式 Cancel：当前任务完整保存后停止后续任务，避免半写文件。
-- [ ] 单次“完整转换并保存”放入 Worker。
-- [ ] ROI 大数据自动转换评估是否需要 Worker / 降采样显示策略。
-- [ ] 全局精修增加优化内核级可中断检查后，再支持真正的精修 Cancel。
-- [ ] GUI 主线程不存在明显长时间阻塞路径。
+- [x] 单次“完整转换并保存”放入 Worker；后台保存图使用 Matplotlib Agg，不在线程内创建 Qt Figure Manager。
+- [x] ROI 大数据自动转换：默认 ≥250k 点后台计算；连续 ROI/参数变化只保留最新请求。
+- [x] GUI 主要重计算路径已移出主线程；小于阈值的即时任务继续同步以保持实时手感。
+- [ ] 全局精修增加唯一优化内核级可中断检查后，再支持真正的精修 Cancel；禁止复制第二套优化算法实现。
 
 ### 日志/诊断
 
