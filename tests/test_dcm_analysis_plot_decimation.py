@@ -5,6 +5,7 @@ from matplotlib.figure import Figure
 
 from scope_zero_span_converter.dcm_analysis.plots import (
     MAX_DISPLAY_POINTS,
+    display_indices_for_range,
     display_indices_preserve_extrema,
     draw_magnitude_spectrum_panel,
     draw_phase_spectrum_panel,
@@ -24,6 +25,27 @@ def test_display_decimation_preserves_endpoints_and_single_sample_spike():
     assert indices[-1] == len(values) - 1
     assert 123_457 in indices
     assert 150_003 in indices
+
+
+def test_display_range_restores_all_points_when_zoom_window_is_small():
+    x = np.arange(200_000, dtype=float)
+    y = np.sin(x / 17.0)
+
+    full_indices = display_indices_for_range(x, y, None, max_points=2_000)
+    zoom_indices = display_indices_for_range(
+        x,
+        y,
+        (50_000.0, 50_999.0),
+        max_points=2_000,
+    )
+
+    assert len(full_indices) <= 2_000
+    # One point immediately outside each edge is intentionally retained for
+    # visual line continuity, so the 1000-point viewport returns 1002 samples.
+    assert len(zoom_indices) == 1_002
+    assert zoom_indices[0] == 49_999
+    assert zoom_indices[-1] == 51_000
+    assert np.array_equal(zoom_indices[1:-1], np.arange(50_000, 51_000))
 
 
 def test_magnitude_and_phase_use_identical_reduced_frequency_samples():
