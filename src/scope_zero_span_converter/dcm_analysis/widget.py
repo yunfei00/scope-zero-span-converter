@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from ..dcm_analysis_widget import DcmAnalysisWidget as _CompatibilityDcmAnalysisWidget
-from ..dcm_sw_generator import load_dcm_sw_parameters, save_dcm_sw_parameters
+from ..dcm_sw_generator import DcmSwWaveform, load_dcm_sw_parameters, save_dcm_sw_parameters
 from ..dcm_zero_span_link import load_zero_span_profile, save_zero_span_profile
 from .plots import (
     draw_magnitude_spectrum_panel,
@@ -14,22 +15,40 @@ from .plots import (
     draw_time_domain_panel,
     draw_zero_span_panel,
 )
+from .spectrum import DcmSpectrum, compute_dcm_spectrum
+from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
 
 
 class DcmAnalysisWidget(_CompatibilityDcmAnalysisWidget):
     """Formal DCM analysis widget owning the production four-panel layout.
 
-    The compatibility widget still supplies the existing parameter controls,
-    workspace, Marker, axis and Rectangle-Zoom behaviors during migration. The
-    actual four-panel figure layout/rendering lives here and in ``plots.py`` so
-    production code no longer depends on the legacy v4/v10 redraw methods.
+    Small FFTs remain synchronous to preserve the established instant UI. Large
+    FFTs are dispatched to a single background task; while a task is running,
+    repeated parameter changes keep only the newest pending waveform. Display-
+    only redraws reuse the cached spectrum and never repeat the FFT.
     """
+
+    FFT_BACKGROUND_THRESHOLD_POINTS = 250_000
 
     def __init__(self, parent=None) -> None:
         # Explicit file state belongs to the formal workspace. Never recover a
         # path by parsing QLabel text.
         self.current_dcm_parameters_path: str | None = None
         self.current_zero_span_profile_path: str | None = None
+
+        # Parent construction dynamically calls _redraw(), so all FFT worker/
+        # cache fields must exist before super().__init__().
+        self._spectrum_cache_waveform: DcmSwWaveform | None = None
+        self._spectrum_cache: DcmSpectrum | None = None
+        self._spectrum_error: str | None = None
+        self._spectrum_request_seq = 0
+        self._spectrum_worker_running = False
+        self._spectrum_active_request_id: int | None = None
+        self._spectrum_active_waveform_id: int | None = None
+        self._spectrum_active_task: SpectrumWorkerTask | None = None
+        self._spectrum_pending_waveform: DcmSwWaveform | None = None
+        self._spectrum_thread_pool = QThreadPool.globalInstance()
+
         super().__init__(parent)
 
     @staticmethod
@@ -121,6 +140,210 @@ class DcmAnalysisWidget(_CompatibilityDcmAnalysisWidget):
             QMessageBox.critical(self, "保存转换参数失败", str(exc))
 
     # ------------------------------------------------------------------
+    # Spectrum cache / background worker
+    # ------------------------------------------------------------------
+    def _set_spectrum_cache(
+        self,
+        waveform: DcmSwWaveform,
+        spectrum: DcmSpectrum,
+    ) -> None:
+        self._spectrum_cache_waveform = waveform
+        self._spectrum_cache = spectrum
+        self._spectrum_error = None
+        self.current_spectrum_frequency_hz = spectrum.frequency_hz
+        self.current_spectrum_amplitude_dbv = spectrum.amplitude_dbv
+        self.current_spectrum_phase_deg = spectrum.phase_deg
+        self.current_phase_visibility_threshold_dbv = spectrum.phase_visibility_threshold_dbv
+
+    def _clear_current_spectrum(self) -> None:
+        self.current_spectrum_frequency_hz = np.asarray([], dtype=float)
+        self.current_spectrum_amplitude_dbv = np.asarray([], dtype=float)
+        self.current_spectrum_phase_deg = np.asarray([], dtype=float)
+        self.current_phase_visibility_threshold_dbv = self.PHASE_VISIBLE_FLOOR_DBV
+
+    def _spectrum_from_current_cache(self) -> DcmSpectrum | None:
+        waveform = self.current_waveform
+        if waveform is not None and waveform is self._spectrum_cache_waveform:
+            return self._spectrum_cache
+        return None
+
+    def _spectrum_worker_options(self) -> SpectrumWorkerOptions:
+        return SpectrumWorkerOptions(
+            amplitude_floor_dbv=self.SPECTRUM_FLOOR_DBV,
+            phase_visible_floor_dbv=self.PHASE_VISIBLE_FLOOR_DBV,
+            phase_dynamic_range_db=self.PHASE_DYNAMIC_RANGE_DB,
+        )
+
+    def _compute_spectrum_sync(self, waveform: DcmSwWaveform) -> DcmSpectrum:
+        spectrum = compute_dcm_spectrum(
+            waveform.time_s,
+            waveform.voltage_v,
+            amplitude_floor_dbv=self.SPECTRUM_FLOOR_DBV,
+            phase_visible_floor_dbv=self.PHASE_VISIBLE_FLOOR_DBV,
+            phase_dynamic_range_db=self.PHASE_DYNAMIC_RANGE_DB,
+        )
+        self._set_spectrum_cache(waveform, spectrum)
+        return spectrum
+
+    def _start_spectrum_worker(self, waveform: DcmSwWaveform) -> None:
+        if self._spectrum_worker_running:
+            if id(waveform) != self._spectrum_active_waveform_id:
+                # Latest-wins queue: do not pile up multiple expensive FFT jobs.
+                self._spectrum_pending_waveform = waveform
+            return
+
+        self._spectrum_request_seq += 1
+        request_id = self._spectrum_request_seq
+        waveform_id = id(waveform)
+        task = SpectrumWorkerTask(
+            request_id=request_id,
+            waveform_id=waveform_id,
+            time_s=waveform.time_s,
+            voltage_v=waveform.voltage_v,
+            options=self._spectrum_worker_options(),
+        )
+        task.signals.finished.connect(self._on_spectrum_worker_finished)
+        task.signals.failed.connect(self._on_spectrum_worker_failed)
+
+        self._spectrum_worker_running = True
+        self._spectrum_active_request_id = request_id
+        self._spectrum_active_waveform_id = waveform_id
+        self._spectrum_active_task = task
+        self._spectrum_pending_waveform = None
+        self._spectrum_thread_pool.start(task)
+
+    def _release_spectrum_worker_and_start_pending(self) -> bool:
+        self._spectrum_worker_running = False
+        self._spectrum_active_request_id = None
+        self._spectrum_active_waveform_id = None
+        self._spectrum_active_task = None
+
+        pending = self._spectrum_pending_waveform
+        self._spectrum_pending_waveform = None
+        if pending is not None and pending is self.current_waveform:
+            self._start_spectrum_worker(pending)
+            return True
+        return False
+
+    def _on_spectrum_worker_finished(
+        self,
+        request_id: int,
+        waveform_id: int,
+        spectrum: DcmSpectrum,
+    ) -> None:
+        is_active = (
+            request_id == self._spectrum_active_request_id
+            and waveform_id == self._spectrum_active_waveform_id
+        )
+        current = self.current_waveform
+        result_is_current = is_active and current is not None and id(current) == waveform_id
+
+        if result_is_current:
+            self._set_spectrum_cache(current, spectrum)
+
+        started_pending = self._release_spectrum_worker_and_start_pending()
+        if result_is_current and not started_pending:
+            # Signal arrives on the GUI thread. Repaint from the finished cache;
+            # this redraw does not perform another FFT.
+            self._redraw(zero_span_error=self.current_zero_span_error)
+
+    def _on_spectrum_worker_failed(
+        self,
+        request_id: int,
+        waveform_id: int,
+        message: str,
+    ) -> None:
+        is_active = (
+            request_id == self._spectrum_active_request_id
+            and waveform_id == self._spectrum_active_waveform_id
+        )
+        current = self.current_waveform
+        result_is_current = is_active and current is not None and id(current) == waveform_id
+
+        if result_is_current:
+            self._spectrum_cache_waveform = None
+            self._spectrum_cache = None
+            self._spectrum_error = str(message)
+            self._clear_current_spectrum()
+
+        started_pending = self._release_spectrum_worker_and_start_pending()
+        if result_is_current and not started_pending:
+            self._redraw(zero_span_error=self.current_zero_span_error)
+
+    def _get_or_schedule_spectrum(self, waveform: DcmSwWaveform) -> DcmSpectrum | None:
+        if waveform is self._spectrum_cache_waveform and self._spectrum_cache is not None:
+            return self._spectrum_cache
+
+        if waveform.points < self.FFT_BACKGROUND_THRESHOLD_POINTS:
+            return self._compute_spectrum_sync(waveform)
+
+        self._spectrum_error = None
+        self._clear_current_spectrum()
+        self._start_spectrum_worker(waveform)
+        return None
+
+    def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
+        spectrum = self._get_or_schedule_spectrum(waveform)
+        draw_magnitude_spectrum_panel(
+            ax,
+            spectrum,
+            center_frequency_hz=self.profile.center_frequency_hz,
+            rbw_hz=self.profile.rbw_hz,
+        )
+
+        if spectrum is None:
+            message = "大波形 FFT 后台计算中…"
+            if self._spectrum_error:
+                message = f"DCM FFT 不可计算：{self._spectrum_error}"
+            ax.set_title(message)
+            self._refresh_peak_table()
+            self._update_marker_info()
+            return
+
+        # Preserve the established v5/v8/v9 behavior: manual coordinate input
+        # affects the current frame only; a normal FFT/data refresh returns to
+        # automatic bounds and writes the resulting values back to the controls.
+        if hasattr(self, "freq_x_min"):
+            self._apply_fixed_axis(
+                ax,
+                x_min=self.freq_x_min.value(),
+                x_max=self.freq_x_max.value(),
+                x_step=self.freq_x_step.value(),
+                y_min=self.freq_y_min.value(),
+                y_max=self.freq_y_max.value(),
+                y_step=self.freq_y_step.value(),
+            )
+        if not getattr(self, "_frequency_manual_redraw_once", False):
+            self._apply_frequency_auto_axis(ax)
+
+        self._refresh_peak_table()
+        self._update_marker_info()
+        self._draw_frequency_marker_line(
+            ax,
+            self._current_frequency_marker(),
+            phase=False,
+        )
+
+    def _draw_reserved_panel(self, ax) -> None:
+        spectrum = self._spectrum_from_current_cache()
+        draw_phase_spectrum_panel(
+            ax,
+            spectrum,
+            center_frequency_hz=self.profile.center_frequency_hz,
+            rbw_hz=self.profile.rbw_hz,
+        )
+        if spectrum is None and self.current_waveform is not None:
+            if self._spectrum_error:
+                ax.set_title(f"DCM 相位频谱不可计算：{self._spectrum_error}")
+            elif self.current_waveform.points >= self.FFT_BACKGROUND_THRESHOLD_POINTS:
+                ax.set_title("DCM 相位频谱（等待后台 FFT）")
+        self._draw_frequency_marker_line(
+            ax,
+            self._current_frequency_marker(),
+            phase=True,
+        )
+
+    # ------------------------------------------------------------------
     # Formal four-panel rendering
     # ------------------------------------------------------------------
     def _redraw(
@@ -150,10 +373,7 @@ class DcmAnalysisWidget(_CompatibilityDcmAnalysisWidget):
         )
 
         if waveform is None:
-            self.current_spectrum_frequency_hz = np.asarray([], dtype=float)
-            self.current_spectrum_amplitude_dbv = np.asarray([], dtype=float)
-            self.current_spectrum_phase_deg = np.asarray([], dtype=float)
-            self.current_phase_visibility_threshold_dbv = self.PHASE_VISIBLE_FLOOR_DBV
+            self._clear_current_spectrum()
             draw_magnitude_spectrum_panel(
                 ax_frequency,
                 None,
@@ -167,8 +387,6 @@ class DcmAnalysisWidget(_CompatibilityDcmAnalysisWidget):
                 rbw_hz=self.profile.rbw_hz,
             )
         else:
-            # These hooks are already migrated to formal spectrum.py + plots.py
-            # in the compatibility entry and preserve frequency axis/Marker rules.
             self._draw_frequency_panel(ax_frequency, waveform)
             self._draw_reserved_panel(ax_phase)
 
