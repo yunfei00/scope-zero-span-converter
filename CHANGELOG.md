@@ -42,6 +42,17 @@
 - 相位明确为当前 FFT 记录起点参考下的 Wrapped Phase，不等同于网络分析仪的器件绝对相位。
 - 相位有效性从固定 `-120 dBV` 升级为“绝对门限 + 当前峰值向下 60 dB 动态范围”的联合门限。
 - 相位图显示当前实际有效幅度阈值，低于阈值的频点相位隐藏。
+- 幅度与相位的全频、自动显示抽样、Rectangle Zoom 和手动频率范围均复用同一组 FFT display indices；Zoom 从完整 FFT 缓存恢复当前视窗真实 bins。
+- 修复右侧共享 X 轴建立后 Center/RBW 辅助图元触发二次 autoscale，导致最终频率范围与输入框回填不一致的问题。
+
+### P0 快照与异步一致性
+
+- 新增 DCM 分析快照一致性门禁：DCM 参数、当前波形、Zero Span Profile/结果、FFT 幅度/相位必须来自同一数据版本才允许一键导出。
+- DCM FFT 与 Zero Span 结果均记录完整源波形签名；Zero Span 额外记录涵盖 Center/RBW/VBW、阻抗、校准和示波器模拟带宽的 Profile 签名。
+- DCM 参数 debounce、DCM/FFT Worker 运行中或存在 latest pending request 时拒绝导出，并明确提示等待联动/FFT 完成。
+- 补强 DCM recompute、FFT、ROI 和全局精修异步结果保护；旧请求或已变化的输入不能释放/覆盖更新的 GUI 状态。
+- 修复 64 位平台把 Python waveform identity 通过 Qt 32 位 `int` 信号传递时可能溢出、令 FFT Worker 状态无法释放的问题。
+- DCM 生成结果保留独立参数快照，后续原位修改参数对象不会伪造已有波形的生成参数。
 
 ### 商业支持能力
 

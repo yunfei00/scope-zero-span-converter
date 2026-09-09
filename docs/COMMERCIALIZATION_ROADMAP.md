@@ -64,6 +64,7 @@ src/scope_zero_span_converter/
     peaks.py
     markers.py
     time_markers.py
+    snapshot.py
     exporter.py
     worker.py
     recompute.py
@@ -91,6 +92,7 @@ src/scope_zero_span_converter/
 - [x] 正式 `frequency_axis.py` 接管频域自动适配、手动当前帧、范围/步长回填和频域 Zoom 清理；生产运行逻辑不再依赖 v5/v8/v9 方法体。
 - [x] 正式 `zoom_interaction.py` 接管 Rectangle Zoom、Space 多级返回、Zoom 范围应用和显示轴变更后的 Zoom 清理；生产运行逻辑不再依赖 v6 方法体。
 - [x] 正式 `recompute.py` / `recompute_worker.py` 接管大 DCM + Zero Span 的 latest-wins 后台联动调度。
+- [x] 正式 `snapshot.py` 统一校验 DCM 参数、波形、Zero Span Profile/结果和幅相 FFT 的同源快照，Worker/debounce/pending 状态未收敛时禁止导出。
 - [ ] 将历史链中剩余“控件构造”职责移入正式模块；当前 v2/v5/v6 等仍在构造期提供已验证控件和初始信号连接。
 - [ ] 保留旧模块一段兼容期后，正式测试逐步退出对旧版本模块的直接引用。
 
@@ -139,6 +141,7 @@ src/scope_zero_span_converter/
 - [x] 相位显示 `Wrapped Phase` 和参考定义。
 - [x] 明确：相位参考当前记录/FFT 窗口，不等同于网络分析仪器件绝对相位。
 - [x] 相位有效门限升级为“绝对门限 + 相对峰值 60 dB 动态范围”策略，并记录实际有效阈值。
+- [x] 全频、自动抽样、Rectangle Zoom、手动 X 范围下，Magnitude/Phase 始终使用同一组 display frequency bins；局部视窗从完整 FFT 缓存恢复细节。
 
 ### 验收
 
@@ -160,6 +163,8 @@ src/scope_zero_span_converter/
 - [x] Center / RBW 信息卡；明确 Span=0、3 dB 接收带宽、VBW、Scope BW、Fs/Nyquist 与当前有效性。
 - [x] 一键导出当前四图 PNG、DCM 时域 CSV、Zero Span Time-vs-Power CSV、幅相频谱 CSV 与 `analysis_metadata.json`。
 - [x] 分析导出 metadata 明确 Zero Span/FFT 语义，并主动排除 Rectangle Zoom 临时历史。
+- [x] 一键导出前执行 analysis snapshot consistency gate；同点数/Fs/Duration 但电压不同的旧 FFT/Zero Span、旧 Profile、未生成参数和任何未完成 Worker/pending request 均拒绝导出。
+- [x] `analysis_metadata.json` 记录统一 waveform/Profile snapshot signature，并在 Zero Span 与 FFT 分节中交叉记录来源。
 
 ### Workspace
 
@@ -183,6 +188,7 @@ src/scope_zero_span_converter/
 - [x] 批量转换支持协作式 Cancel：当前任务完整保存后停止后续任务，避免半写文件。
 - [x] 单次“完整转换并保存”放入 Worker；后台保存图使用 Matplotlib Agg，不在线程内创建 Qt Figure Manager。
 - [x] ROI 大数据自动转换：默认 ≥250k 点后台计算；连续 ROI/参数变化只保留最新请求。
+- [x] DCM recompute、FFT、ROI 与全局精修补齐输入快照/latest-wins 校验；包含“控件已变但 debounce 尚未触发”的旧结果拒绝路径。
 - [x] GUI 主要重计算路径已移出主线程；小于阈值的即时任务继续同步以保持实时手感。
 - [ ] 全局精修增加唯一优化内核级可中断检查后，再支持真正的精修 Cancel；禁止复制第二套优化算法实现。
 
