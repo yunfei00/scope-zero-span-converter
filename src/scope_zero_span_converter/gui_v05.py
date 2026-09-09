@@ -137,9 +137,13 @@ class MainWindow(WaveformResearchMainWindow):
     # ROI conversion: small synchronous / large latest-wins worker
     # ------------------------------------------------------------------
     def _schedule_region_conversion(self) -> None:
-        if not self.auto_update_roi_check.isChecked():
-            return
+        # Invalidate the active result immediately, including when automatic ROI
+        # updates were just disabled.  Otherwise an older worker could repaint
+        # data after the customer changed the ROI/config during its debounce gap.
         self._roi_generation += 1
+        if not self.auto_update_roi_check.isChecked():
+            self._roi_pending_payload = None
+            return
         self._conversion_timer.start()
 
     def update_region_conversion(self) -> None:

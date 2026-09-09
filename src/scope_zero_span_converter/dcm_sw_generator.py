@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -291,8 +292,12 @@ def evaluate_dcm_sw_deterministic_components(
 def generate_dcm_sw_waveform(parameters: DcmSwParameters) -> DcmSwWaveform:
     """生成一个已知参数、可重复的单事件 DCM SW 合成波形。"""
 
-    parameters.validate()
-    p = parameters
+    # Keep the generated waveform tied to an immutable-in-practice parameter
+    # snapshot.  DcmSwParameters remains mutable for compatibility, so retaining
+    # the caller's object here would let a later in-place edit rewrite the
+    # waveform metadata without regenerating its voltage samples.
+    p = deepcopy(parameters)
+    p.validate()
     events = event_times(p)
 
     points = int(np.floor(p.total_duration_s * p.sample_rate_hz)) + 1

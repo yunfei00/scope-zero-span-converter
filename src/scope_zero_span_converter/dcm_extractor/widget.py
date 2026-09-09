@@ -15,6 +15,7 @@ from ..dcm_parameter_extractor_widget_v7 import (
 )
 from ..dcm_unified_fit import parameters_from_extraction
 from ..logging_utils import get_logger
+from ..waveform_quality import waveform_signature
 from .worker import GlobalRefinementWorkerTask
 
 
@@ -29,6 +30,8 @@ class DcmParameterExtractorWidget(_LegacyExtractorWidget):
         self._global_refinement_request_seq = 0
         self._global_refinement_active_request_id: int | None = None
         self._global_refinement_task: GlobalRefinementWorkerTask | None = None
+        self._global_refinement_active_source_signature: str | None = None
+        self._global_refinement_active_inputs: tuple[object, object, object] | None = None
         super().__init__(parent)
 
     def _ready_for_global_refinement(self) -> bool:
@@ -97,6 +100,15 @@ class DcmParameterExtractorWidget(_LegacyExtractorWidget):
 
         self._global_refinement_active_request_id = request_id
         self._global_refinement_task = task
+        self._global_refinement_active_source_signature = waveform_signature(
+            self.time_s,
+            self.voltage_v,
+        )
+        self._global_refinement_active_inputs = (
+            self.result,
+            self.ringing_result,
+            self.dcm_result,
+        )
         self._set_global_refinement_busy(True)
         self.status_label.setText(
             "全局联合精修已进入后台计算：界面保持响应。"
@@ -107,10 +119,37 @@ class DcmParameterExtractorWidget(_LegacyExtractorWidget):
     def _release_global_refinement_task(self) -> None:
         self._global_refinement_active_request_id = None
         self._global_refinement_task = None
+        self._global_refinement_active_source_signature = None
+        self._global_refinement_active_inputs = None
         self._set_global_refinement_busy(False)
+
+    def _global_refinement_source_is_current(self) -> bool:
+        if self.time_s is None or self.voltage_v is None:
+            return False
+        active_inputs = self._global_refinement_active_inputs
+        current_inputs = (
+            self.result,
+            self.ringing_result,
+            self.dcm_result,
+        )
+        if active_inputs is None or not all(
+            active is current
+            for active, current in zip(active_inputs, current_inputs, strict=True)
+        ):
+            return False
+        return self._global_refinement_active_source_signature == waveform_signature(
+            self.time_s,
+            self.voltage_v,
+        )
 
     def _on_global_refinement_finished(self, request_id: int, result) -> None:
         if request_id != self._global_refinement_active_request_id:
+            return
+        if not self._global_refinement_source_is_current():
+            self._release_global_refinement_task()
+            self.status_label.setText(
+                "联合精修结果已丢弃：输入波形或前三阶段结果已更新。"
+            )
             return
 
         self.global_result = result
@@ -146,6 +185,9 @@ class DcmParameterExtractorWidget(_LegacyExtractorWidget):
 
     def _on_global_refinement_failed(self, request_id: int, message: str) -> None:
         if request_id != self._global_refinement_active_request_id:
+            return
+        if not self._global_refinement_source_is_current():
+            self._release_global_refinement_task()
             return
 
         self.global_result = None

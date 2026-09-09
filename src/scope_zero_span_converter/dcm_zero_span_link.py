@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ import numpy as np
 
 from .converter import EPS_W, apply_vbw, gaussian_rbw_baseband
 from .dcm_sw_generator import DcmSwWaveform
+from .waveform_quality import waveform_signature
 
 
 @dataclass
@@ -57,6 +59,20 @@ class DcmZeroSpanResult:
     center_frequency_hz: float
     rbw_hz: float
     vbw_hz: float | None
+    source_waveform_signature: str | None = None
+    source_profile_signature: str | None = None
+
+
+def zero_span_profile_signature(profile: ZeroSpanProfile) -> str:
+    """Return a deterministic identity for every physical profile input."""
+
+    payload = json.dumps(
+        asdict(profile),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.blake2b(payload, digest_size=16).hexdigest()
 
 
 def convert_dcm_waveform_to_zero_span(
@@ -105,6 +121,8 @@ def convert_dcm_waveform_to_zero_span(
         center_frequency_hz=profile.center_frequency_hz,
         rbw_hz=profile.rbw_hz,
         vbw_hz=effective_vbw,
+        source_waveform_signature=waveform_signature(t, v),
+        source_profile_signature=zero_span_profile_signature(profile),
     )
 
 

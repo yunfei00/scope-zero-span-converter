@@ -17,7 +17,7 @@ class SpectrumPeak:
 
     @property
     def phase_valid(self) -> bool:
-        return self.phase_deg is not None and np.isfinite(self.phase_deg)
+        return bool(self.phase_deg is not None and np.isfinite(self.phase_deg))
 
 
 def find_spectrum_peaks(

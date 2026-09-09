@@ -70,6 +70,12 @@ class DcmRecomputeMixin:
         return int(np.floor(product)) + 1
 
     def _recompute(self) -> None:
+        timer = getattr(self, "_update_timer", None)
+        if timer is not None and timer.isActive():
+            # A direct recompute (file load/workspace restore/test hook) consumes
+            # the same pending debounce request; do not run it a second time.
+            timer.stop()
+
         self._recompute_request_seq += 1
         request_id = self._recompute_request_seq
         self._recompute_latest_request_id = request_id
@@ -138,9 +144,12 @@ class DcmRecomputeMixin:
 
     def _on_recompute_worker_finished(self, result: DcmRecomputeWorkerResult) -> None:
         is_active = result.request_id == self._recompute_active_request_id
+        if not is_active:
+            # A delayed signal from a superseded task must not release or mutate
+            # the worker that currently owns the scheduling slot.
+            return
         snapshots_still_current = (
-            is_active
-            and self._recompute_active_parameters == self.parameters
+            self._recompute_active_parameters == self.parameters
             and self._recompute_active_profile == self.profile
         )
         is_latest = result.request_id == self._recompute_latest_request_id
@@ -155,7 +164,7 @@ class DcmRecomputeMixin:
             self._start_recompute_worker(pending)
             return
 
-        if not (is_active and is_latest and snapshots_still_current):
+        if not (is_latest and snapshots_still_current):
             # A control can change before the debounce timer issues its next
             # request. Never let the old worker overwrite those newer controls.
             return

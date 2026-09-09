@@ -11,8 +11,10 @@ from .spectrum import DcmSpectrum, compute_dcm_spectrum
 class SpectrumWorkerSignals(QObject):
     """Thread-safe signals emitted by a one-shot spectrum task."""
 
-    finished = Signal(int, int, object)
-    failed = Signal(int, int, str)
+    # Python object is intentional for waveform_id: CPython object identities
+    # routinely exceed Qt's signed 32-bit ``int`` range on 64-bit platforms.
+    finished = Signal(int, object, object)
+    failed = Signal(int, object, str)
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,28 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 import numpy as np
+
+
+def waveform_signature(time_s: np.ndarray, voltage_v: np.ndarray) -> str:
+    """Return a deterministic identity for one exact sampled waveform.
+
+    This is an analysis-consistency key rather than a security primitive.  The
+    byte order and dtype are normalized so equivalent arrays have the same
+    identity on Windows and Linux, while a voltage-only change is still caught.
+    """
+
+    time = np.ascontiguousarray(np.asarray(time_s, dtype="<f8"))
+    voltage = np.ascontiguousarray(np.asarray(voltage_v, dtype="<f8"))
+    if time.ndim != 1 or voltage.ndim != 1 or len(time) != len(voltage):
+        raise ValueError("time_s / voltage_v 必须是一维且点数一致")
+
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(memoryview(time).cast("B"))
+    digest.update(memoryview(voltage).cast("B"))
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)

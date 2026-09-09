@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 
 from .. import __version__
-from ..dcm_sw_generator import DcmSwWaveform
-from ..dcm_zero_span_link import DcmZeroSpanResult
+from ..dcm_sw_generator import DcmSwParameters, DcmSwWaveform
+from ..dcm_zero_span_link import DcmZeroSpanResult, ZeroSpanProfile
+from .snapshot import validate_analysis_snapshot
 from .spectrum import DcmSpectrum
 
 
@@ -43,9 +44,11 @@ def _json_safe(value: Any) -> Any:
 def export_dcm_analysis_bundle(
     directory: str | Path,
     *,
+    parameters: DcmSwParameters,
+    profile: ZeroSpanProfile,
     waveform: DcmSwWaveform,
-    zero_span: DcmZeroSpanResult | None,
-    spectrum: DcmSpectrum | None,
+    zero_span: DcmZeroSpanResult,
+    spectrum: DcmSpectrum,
     figure: Any | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
@@ -54,6 +57,16 @@ def export_dcm_analysis_bundle(
     The bundle intentionally contains explicit physical data tables instead of a
     serialized GUI cache. Rectangle-zoom history is therefore never exported.
     """
+
+    snapshot = validate_analysis_snapshot(
+        parameters=parameters,
+        profile=profile,
+        waveform=waveform,
+        zero_span=zero_span,
+        spectrum=spectrum,
+    )
+    waveform_signature = snapshot.waveform_signature
+    profile_signature = snapshot.profile_signature
 
     root = Path(directory)
     root.mkdir(parents=True, exist_ok=True)
@@ -114,8 +127,18 @@ def export_dcm_analysis_bundle(
             ),
             "zoom_history_exported": False,
         },
-        "dcm_parameters": asdict(waveform.parameters),
-        "data_files": {key: path.name for key, path in outputs.items()},
+        "analysis_snapshot": {
+            "waveform_signature": waveform_signature,
+            "zero_span_source_waveform_signature": zero_span.source_waveform_signature,
+            "zero_span_profile_signature": profile_signature,
+            "fft_source_waveform_signature": spectrum.source_waveform_signature,
+        },
+        "dcm_parameters": asdict(parameters),
+        "zero_span_profile": asdict(profile),
+        "data_files": {
+            **{key: path.name for key, path in outputs.items()},
+            "metadata_json": "analysis_metadata.json",
+        },
     }
     if zero_span is not None:
         payload["zero_span_result"] = {
@@ -124,6 +147,8 @@ def export_dcm_analysis_bundle(
             "rbw_hz": zero_span.rbw_hz,
             "vbw_hz": zero_span.vbw_hz,
             "points": len(zero_span.time_s),
+            "source_waveform_signature": zero_span.source_waveform_signature,
+            "source_profile_signature": zero_span.source_profile_signature,
         }
     if spectrum is not None:
         payload["fft"] = {
@@ -135,6 +160,7 @@ def export_dcm_analysis_bundle(
             "phase_reference_description": spectrum.phase_reference_description,
             "phase_visibility_threshold_dbv": spectrum.phase_visibility_threshold_dbv,
             "phase_dynamic_range_db": spectrum.phase_dynamic_range_db,
+            "source_waveform_signature": spectrum.source_waveform_signature,
         }
     if metadata:
         payload["workspace"] = metadata

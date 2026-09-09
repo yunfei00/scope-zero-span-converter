@@ -31,7 +31,7 @@ from .dcm_analysis.plots import (
     draw_magnitude_spectrum_panel,
     draw_phase_spectrum_panel,
 )
-from .dcm_analysis.spectrum import DcmSpectrum, compute_dcm_spectrum
+from .dcm_analysis.spectrum import DcmSpectrum, compute_dcm_spectrum, waveform_signature
 from .dcm_analysis.time_markers import (
     TimeMarker,
     time_marker_at_time,
@@ -201,6 +201,10 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
                 )
             ),
             phase_dynamic_range_db=float(self.PHASE_DYNAMIC_RANGE_DB),
+            source_waveform_signature=waveform_signature(
+                self.current_waveform.time_s,
+                self.current_waveform.voltage_v,
+            ),
         )
 
     def _current_frequency_marker(self) -> SpectrumMarker | None:
@@ -525,6 +529,8 @@ class DcmAnalysisWidget(_CurrentDcmAnalysisWidget):
             workspace["zero_span_error"] = self.current_zero_span_error
             outputs = export_dcm_analysis_bundle(
                 directory,
+                parameters=self.parameters,
+                profile=self.profile,
                 waveform=self.current_waveform,
                 zero_span=self.current_zero_span,
                 spectrum=self._spectrum_from_current_cache(),

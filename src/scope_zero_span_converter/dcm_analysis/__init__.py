@@ -23,6 +23,12 @@ from .plots import (
     draw_zero_span_panel,
 )
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
+from .snapshot import (
+    ANALYSIS_UPDATING_MESSAGE,
+    AnalysisSnapshot,
+    AnalysisSnapshotConsistencyError,
+    validate_analysis_snapshot,
+)
 from .time_markers import (
     TimeMarker,
     TimeMarkerDelta,
@@ -34,6 +40,10 @@ from .zoom import ZoomBounds, ZoomState, ZoomTarget, normalized_bounds
 __all__ = [
     "DcmSpectrum",
     "compute_dcm_spectrum",
+    "ANALYSIS_UPDATING_MESSAGE",
+    "AnalysisSnapshot",
+    "AnalysisSnapshotConsistencyError",
+    "validate_analysis_snapshot",
     "SpectrumPeak",
     "find_spectrum_peaks",
     "SpectrumMarker",

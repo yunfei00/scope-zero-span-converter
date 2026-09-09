@@ -9,6 +9,9 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from ..dcm_analysis_widget import DcmAnalysisWidget as _CompatibilityDcmAnalysisWidget
 from ..dcm_sw_generator import DcmSwWaveform, load_dcm_sw_parameters, save_dcm_sw_parameters
 from ..dcm_zero_span_link import load_zero_span_profile, save_zero_span_profile
+from ..waveform_quality import waveform_signature
+from ..workspace import collect_dcm_analysis_workspace
+from .exporter import export_dcm_analysis_bundle
 from .frequency_axis import FrequencyAxisMixin
 from .plots import (
     draw_magnitude_spectrum_panel,
@@ -17,6 +20,7 @@ from .plots import (
     draw_zero_span_panel,
 )
 from .recompute import DcmRecomputeMixin
+from .snapshot import AnalysisSnapshotConsistencyError, validate_analysis_snapshot
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
 from .zoom_interaction import ZoomInteractionMixin
@@ -57,6 +61,7 @@ class DcmAnalysisWidget(
         self._spectrum_active_waveform_id: int | None = None
         self._spectrum_active_task: SpectrumWorkerTask | None = None
         self._spectrum_pending_waveform: DcmSwWaveform | None = None
+        self._frequency_auto_axis_pending = True
         self._spectrum_thread_pool = QThreadPool.globalInstance()
 
         super().__init__(parent)
@@ -150,6 +155,71 @@ class DcmAnalysisWidget(
             QMessageBox.critical(self, "保存转换参数失败", str(exc))
 
     # ------------------------------------------------------------------
+    # Snapshot-consistent one-click export
+    # ------------------------------------------------------------------
+    def _analysis_update_in_progress(self) -> bool:
+        timer = getattr(self, "_update_timer", None)
+        return bool(
+            (timer is not None and timer.isActive())
+            or self._recompute_worker_running
+            or self._recompute_pending is not None
+            or self._spectrum_worker_running
+            or self._spectrum_pending_waveform is not None
+        )
+
+    def validate_current_analysis_snapshot(self):
+        return validate_analysis_snapshot(
+            parameters=self.parameters,
+            profile=self.profile,
+            waveform=self.current_waveform,
+            zero_span=self.current_zero_span,
+            spectrum=self._spectrum_from_current_cache(),
+            analysis_updating=self._analysis_update_in_progress(),
+        )
+
+    def _show_snapshot_export_error(
+        self,
+        error: AnalysisSnapshotConsistencyError,
+    ) -> None:
+        QMessageBox.information(self, "当前分析不能导出", str(error))
+
+    def export_analysis_bundle_dialog(self) -> None:
+        try:
+            self.validate_current_analysis_snapshot()
+        except AnalysisSnapshotConsistencyError as exc:
+            self._show_snapshot_export_error(exc)
+            return
+
+        directory = QFileDialog.getExistingDirectory(self, "选择综合分析导出目录")
+        if not directory:
+            return
+
+        try:
+            # A worker or debounce timer may finish/start while the native file
+            # dialog is open.  Revalidate immediately before creating files.
+            snapshot = self.validate_current_analysis_snapshot()
+            workspace = collect_dcm_analysis_workspace(self)
+            workspace["zero_span_valid"] = True
+            workspace["zero_span_error"] = None
+            outputs = export_dcm_analysis_bundle(
+                directory,
+                parameters=snapshot.parameters,
+                profile=snapshot.profile,
+                waveform=snapshot.waveform,
+                zero_span=snapshot.zero_span,
+                spectrum=snapshot.spectrum,
+                figure=self.figure,
+                metadata=workspace,
+            )
+            self.status_label.setText(
+                f"已导出综合分析：{directory} | 共 {len(outputs)} 个文件"
+            )
+        except AnalysisSnapshotConsistencyError as exc:
+            self._show_snapshot_export_error(exc)
+        except Exception as exc:
+            QMessageBox.critical(self, "导出综合分析失败", str(exc))
+
+    # ------------------------------------------------------------------
     # Spectrum cache / background worker
     # ------------------------------------------------------------------
     def _set_spectrum_cache(
@@ -160,6 +230,7 @@ class DcmAnalysisWidget(
         self._spectrum_cache_waveform = waveform
         self._spectrum_cache = spectrum
         self._spectrum_error = None
+        self._frequency_auto_axis_pending = True
         self.current_spectrum_frequency_hz = spectrum.frequency_hz
         self.current_spectrum_amplitude_dbv = spectrum.amplitude_dbv
         self.current_spectrum_phase_deg = spectrum.phase_deg
@@ -245,8 +316,19 @@ class DcmAnalysisWidget(
             request_id == self._spectrum_active_request_id
             and waveform_id == self._spectrum_active_waveform_id
         )
+        if not is_active:
+            return
         current = self.current_waveform
-        result_is_current = is_active and current is not None and id(current) == waveform_id
+        timer = getattr(self, "_update_timer", None)
+        input_update_pending = timer is not None and timer.isActive()
+        result_is_current = (
+            current is not None
+            and id(current) == waveform_id
+            and current.parameters == self.parameters
+            and not input_update_pending
+            and spectrum.source_waveform_signature
+            == waveform_signature(current.time_s, current.voltage_v)
+        )
 
         if result_is_current:
             self._set_spectrum_cache(current, spectrum)
@@ -267,8 +349,17 @@ class DcmAnalysisWidget(
             request_id == self._spectrum_active_request_id
             and waveform_id == self._spectrum_active_waveform_id
         )
+        if not is_active:
+            return
         current = self.current_waveform
-        result_is_current = is_active and current is not None and id(current) == waveform_id
+        timer = getattr(self, "_update_timer", None)
+        input_update_pending = timer is not None and timer.isActive()
+        result_is_current = (
+            current is not None
+            and id(current) == waveform_id
+            and current.parameters == self.parameters
+            and not input_update_pending
+        )
 
         if result_is_current:
             self._spectrum_cache_waveform = None
@@ -323,8 +414,12 @@ class DcmAnalysisWidget(
                 y_max=self.freq_y_max.value(),
                 y_step=self.freq_y_step.value(),
             )
-        if not getattr(self, "_frequency_manual_redraw_once", False):
+        if (
+            not getattr(self, "_frequency_manual_redraw_once", False)
+            and self._frequency_auto_axis_pending
+        ):
             self._apply_frequency_auto_axis(ax)
+            self._frequency_auto_axis_pending = False
 
         self._refresh_peak_table()
         self._update_marker_info()
@@ -404,12 +499,15 @@ class DcmAnalysisWidget(
         # display-only and never regenerates DCM or reruns Zero Span conversion.
         self._apply_axis_controls_if_ready(ax_time, ax_zero)
 
-        # Right-hand phase is the exact same frequency bins as magnitude.
+        # Right-hand phase is the exact same frequency bins as magnitude.  Keep
+        # the final magnitude bounds: attaching an already-drawn phase axis can
+        # otherwise autoscale the shared group from Center/RBW helper artists.
+        frequency_xlim = ax_frequency.get_xlim()
         try:
             ax_phase.sharex(ax_frequency)
         except ValueError:
             pass
-        ax_phase.set_xlim(ax_frequency.get_xlim(), auto=False)
+        ax_frequency.set_xlim(frequency_xlim, auto=False)
 
         self.figure.tight_layout()
 

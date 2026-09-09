@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 
 import numpy as np
 
-from ..waveform_quality import analyze_time_axis, require_fft_safe
+from ..waveform_quality import analyze_time_axis, require_fft_safe, waveform_signature
 
 
 @dataclass(frozen=True)
@@ -22,30 +21,17 @@ class DcmSpectrum:
     phase_reference_description: str = "当前FFT记录起点（record start）"
     phase_visibility_threshold_dbv: float = -120.0
     phase_dynamic_range_db: float | None = 60.0
-    source_signature: str | None = None
+    source_waveform_signature: str | None = None
+
+    @property
+    def source_signature(self) -> str | None:
+        """Compatibility alias for the pre-gate field name."""
+
+        return self.source_waveform_signature
 
     @property
     def points(self) -> int:
         return len(self.frequency_hz)
-
-
-def waveform_signature(time_s: np.ndarray, voltage_v: np.ndarray) -> str:
-    """Return a deterministic fingerprint for one exact FFT source waveform.
-
-    The signature is not a security primitive. It is an analysis-consistency key
-    used to prevent an asynchronous FFT result from being exported together with
-    a newer DCM waveform that happens to have the same point count/sample rate.
-    """
-
-    t = np.ascontiguousarray(np.asarray(time_s, dtype="<f8"))
-    v = np.ascontiguousarray(np.asarray(voltage_v, dtype="<f8"))
-    if t.ndim != 1 or v.ndim != 1 or len(t) != len(v):
-        raise ValueError("time_s / voltage_v 必须是一维且点数一致")
-
-    digest = hashlib.blake2b(digest_size=16)
-    digest.update(memoryview(t).cast("B"))
-    digest.update(memoryview(v).cast("B"))
-    return digest.hexdigest()
 
 
 def compute_dcm_spectrum(
@@ -96,7 +82,7 @@ def compute_dcm_spectrum(
             empty,
             empty,
             dt,
-            source_signature=source_signature,
+            source_waveform_signature=source_signature,
         )
 
     complex_spectrum = np.fft.rfft(ac * window)
@@ -135,7 +121,7 @@ def compute_dcm_spectrum(
         sample_interval_s=dt,
         phase_visibility_threshold_dbv=phase_threshold_dbv,
         phase_dynamic_range_db=dynamic_range,
-        source_signature=source_signature,
+        source_waveform_signature=source_signature,
     )
 
 
