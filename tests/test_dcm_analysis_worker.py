@@ -41,6 +41,7 @@ def test_spectrum_worker_task_computes_without_qwidget_access():
     task = SpectrumWorkerTask(
         request_id=7,
         waveform_id=123,
+        analysis_generation=9,
         time_s=waveform.time_s,
         voltage_v=waveform.voltage_v,
     )
@@ -55,6 +56,7 @@ def test_spectrum_worker_task_computes_without_qwidget_access():
     assert request_id == 7
     assert waveform_id == 123
     assert spectrum.points > 10
+    assert spectrum.analysis_generation == 9
     assert len(spectrum.frequency_hz) == len(spectrum.amplitude_dbv) == len(spectrum.phase_deg)
 
 

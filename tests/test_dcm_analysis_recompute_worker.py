@@ -35,6 +35,7 @@ def test_recompute_worker_returns_dcm_and_zero_span(qapp):
     captured = []
     task = DcmRecomputeWorkerTask(
         request_id=7,
+        request_generation=11,
         parameters=DcmSwParameters(sample_rate_hz=200e6, total_duration_s=10e-6),
         profile=ZeroSpanProfile(
             center_frequency_hz=40e6,
@@ -49,10 +50,12 @@ def test_recompute_worker_returns_dcm_and_zero_span(qapp):
     assert len(captured) == 1
     result = captured[0]
     assert result.request_id == 7
+    assert result.request_generation == 11
     assert result.dcm_error is None
     assert result.zero_span_error is None
     assert result.waveform is not None
     assert result.zero_span is not None
+    assert result.zero_span.analysis_generation == 11
     assert len(result.zero_span.time_s) == result.waveform.points
 
 
@@ -68,27 +71,43 @@ def test_large_recompute_keeps_only_latest_pending_result(qapp):
 
     widget.parameters = replace(widget.parameters, on_high_voltage_v=15.0)
     widget._recompute()
+    first_generation = widget.analysis_generation
     assert len(pool.tasks) == 1
     assert widget._recompute_worker_running is True
 
     widget.parameters = replace(widget.parameters, on_high_voltage_v=17.0)
     widget._recompute()
+    middle_generation = widget.analysis_generation
+    assert middle_generation > first_generation
     assert len(pool.tasks) == 1
     assert widget._recompute_pending is not None
     assert widget._recompute_pending.parameters.on_high_voltage_v == pytest.approx(17.0)
 
-    # Completing the stale 15 V job must not paint it. It should only launch
-    # the newest pending 17 V request.
+    widget.parameters = replace(widget.parameters, on_high_voltage_v=19.0)
+    widget._recompute()
+    latest_generation = widget.analysis_generation
+    assert latest_generation > middle_generation
+    assert len(pool.tasks) == 1
+    assert widget._recompute_pending is not None
+    assert widget._recompute_pending.parameters.on_high_voltage_v == pytest.approx(19.0)
+
+    # Completing the stale 15 V job must not paint it. It should skip the
+    # superseded 17 V request and launch only the newest pending 19 V request.
     pool.tasks[0].run()
     assert len(pool.tasks) == 2
     assert widget.current_waveform is original_waveform
-    assert pool.tasks[1].parameters.on_high_voltage_v == pytest.approx(17.0)
+    assert widget._completed_analysis_generation is None
+    assert pool.tasks[1].parameters.on_high_voltage_v == pytest.approx(19.0)
 
     pool.tasks[1].run()
     assert widget._recompute_worker_running is False
     assert widget.current_waveform is not None
-    assert widget.current_waveform.parameters.on_high_voltage_v == pytest.approx(17.0)
+    assert widget.current_waveform.parameters.on_high_voltage_v == pytest.approx(19.0)
     assert widget.current_zero_span is not None
+    assert widget.current_zero_span.analysis_generation == latest_generation
+    assert widget._spectrum_cache is not None
+    assert widget._spectrum_cache.analysis_generation == latest_generation
+    assert widget._completed_analysis_generation == latest_generation
 
 
 def test_worker_cannot_overwrite_parameter_changed_inside_debounce_window(qapp):

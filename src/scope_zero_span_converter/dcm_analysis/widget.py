@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -56,13 +57,16 @@ class DcmAnalysisWidget(
         # cache fields must exist before super().__init__().
         self._spectrum_cache_waveform: DcmSwWaveform | None = None
         self._spectrum_cache: DcmSpectrum | None = None
+        self._spectrum_generation: int | None = None
         self._spectrum_error: str | None = None
         self._spectrum_request_seq = 0
         self._spectrum_worker_running = False
         self._spectrum_active_request_id: int | None = None
         self._spectrum_active_waveform_id: int | None = None
+        self._spectrum_active_generation: int | None = None
         self._spectrum_active_task: SpectrumWorkerTask | None = None
         self._spectrum_pending_waveform: DcmSwWaveform | None = None
+        self._spectrum_pending_generation: int | None = None
         self._frequency_auto_axis_pending = True
         self._spectrum_thread_pool = QThreadPool.globalInstance()
 
@@ -160,6 +164,7 @@ class DcmAnalysisWidget(
     # Snapshot-consistent one-click export
     # ------------------------------------------------------------------
     def _analysis_update_in_progress(self) -> bool:
+        self._ensure_analysis_generation()
         timer = getattr(self, "_update_timer", None)
         return bool(
             (timer is not None and timer.isActive())
@@ -167,6 +172,7 @@ class DcmAnalysisWidget(
             or self._recompute_pending is not None
             or self._spectrum_worker_running
             or self._spectrum_pending_waveform is not None
+            or self._completed_analysis_generation != self.analysis_generation
         )
 
     def validate_current_analysis_snapshot(self):
@@ -177,6 +183,11 @@ class DcmAnalysisWidget(
             zero_span=self.current_zero_span,
             spectrum=self._spectrum_from_current_cache(),
             analysis_updating=self._analysis_update_in_progress(),
+            analysis_generation=self.analysis_generation,
+            completed_generation=self._completed_analysis_generation,
+            waveform_generation=self._waveform_generation,
+            zero_span_generation=self._zero_span_generation,
+            spectrum_generation=self._spectrum_generation,
         )
 
     def _show_snapshot_export_error(
@@ -212,6 +223,7 @@ class DcmAnalysisWidget(
                 spectrum=snapshot.spectrum,
                 figure=self.figure,
                 metadata=workspace,
+                analysis_generation=snapshot.generation,
             )
             self.status_label.setText(
                 f"已导出综合分析：{directory} | 共 {len(outputs)} 个文件"
@@ -228,17 +240,30 @@ class DcmAnalysisWidget(
         self,
         waveform: DcmSwWaveform,
         spectrum: DcmSpectrum,
+        *,
+        generation: int | None = None,
     ) -> None:
+        result_generation = (
+            self._waveform_generation if generation is None else int(generation)
+        )
+        spectrum = replace(
+            spectrum,
+            analysis_generation=result_generation,
+        )
         self._spectrum_cache_waveform = waveform
         self._spectrum_cache = spectrum
+        self._spectrum_generation = result_generation
         self._spectrum_error = None
         self._frequency_auto_axis_pending = True
         self.current_spectrum_frequency_hz = spectrum.frequency_hz
         self.current_spectrum_amplitude_dbv = spectrum.amplitude_dbv
         self.current_spectrum_phase_deg = spectrum.phase_deg
         self.current_phase_visibility_threshold_dbv = spectrum.phase_visibility_threshold_dbv
+        self._mark_analysis_completed_if_current()
 
     def _clear_current_spectrum(self) -> None:
+        self._spectrum_generation = None
+        self._completed_analysis_generation = None
         self.current_spectrum_frequency_hz = np.asarray([], dtype=float)
         self.current_spectrum_amplitude_dbv = np.asarray([], dtype=float)
         self.current_spectrum_phase_deg = np.asarray([], dtype=float)
@@ -265,14 +290,29 @@ class DcmAnalysisWidget(
             phase_visible_floor_dbv=self.PHASE_VISIBLE_FLOOR_DBV,
             phase_dynamic_range_db=self.PHASE_DYNAMIC_RANGE_DB,
         )
-        self._set_spectrum_cache(waveform, spectrum)
+        self._set_spectrum_cache(
+            waveform,
+            spectrum,
+            generation=self._waveform_generation,
+        )
         return spectrum
 
-    def _start_spectrum_worker(self, waveform: DcmSwWaveform) -> None:
+    def _start_spectrum_worker(
+        self,
+        waveform: DcmSwWaveform,
+        generation: int | None = None,
+    ) -> None:
+        request_generation = (
+            self._waveform_generation if generation is None else int(generation)
+        )
         if self._spectrum_worker_running:
-            if id(waveform) != self._spectrum_active_waveform_id:
+            if (
+                id(waveform) != self._spectrum_active_waveform_id
+                or request_generation != self._spectrum_active_generation
+            ):
                 # Latest-wins queue: do not pile up multiple expensive FFT jobs.
                 self._spectrum_pending_waveform = waveform
+                self._spectrum_pending_generation = request_generation
             return
 
         self._spectrum_request_seq += 1
@@ -281,6 +321,7 @@ class DcmAnalysisWidget(
         task = SpectrumWorkerTask(
             request_id=request_id,
             waveform_id=waveform_id,
+            analysis_generation=request_generation,
             time_s=waveform.time_s,
             voltage_v=waveform.voltage_v,
             options=self._spectrum_worker_options(),
@@ -291,20 +332,29 @@ class DcmAnalysisWidget(
         self._spectrum_worker_running = True
         self._spectrum_active_request_id = request_id
         self._spectrum_active_waveform_id = waveform_id
+        self._spectrum_active_generation = request_generation
         self._spectrum_active_task = task
         self._spectrum_pending_waveform = None
+        self._spectrum_pending_generation = None
         self._spectrum_thread_pool.start(task)
 
     def _release_spectrum_worker_and_start_pending(self) -> bool:
         self._spectrum_worker_running = False
         self._spectrum_active_request_id = None
         self._spectrum_active_waveform_id = None
+        self._spectrum_active_generation = None
         self._spectrum_active_task = None
 
         pending = self._spectrum_pending_waveform
+        pending_generation = self._spectrum_pending_generation
         self._spectrum_pending_waveform = None
-        if pending is not None and pending is self.current_waveform:
-            self._start_spectrum_worker(pending)
+        self._spectrum_pending_generation = None
+        if (
+            pending is not None
+            and pending is self.current_waveform
+            and pending_generation == self.analysis_generation
+        ):
+            self._start_spectrum_worker(pending, pending_generation)
             return True
         return False
 
@@ -320,6 +370,7 @@ class DcmAnalysisWidget(
         )
         if not is_active:
             return
+        self._ensure_analysis_generation()
         current = self.current_waveform
         timer = getattr(self, "_update_timer", None)
         input_update_pending = timer is not None and timer.isActive()
@@ -328,12 +379,18 @@ class DcmAnalysisWidget(
             and id(current) == waveform_id
             and current.parameters == self.parameters
             and not input_update_pending
+            and self._spectrum_active_generation == self.analysis_generation
+            and spectrum.analysis_generation == self.analysis_generation
             and spectrum.source_waveform_signature
             == waveform_signature(current.time_s, current.voltage_v)
         )
 
         if result_is_current:
-            self._set_spectrum_cache(current, spectrum)
+            self._set_spectrum_cache(
+                current,
+                spectrum,
+                generation=self.analysis_generation,
+            )
 
         started_pending = self._release_spectrum_worker_and_start_pending()
         if result_is_current and not started_pending:
@@ -353,6 +410,7 @@ class DcmAnalysisWidget(
         )
         if not is_active:
             return
+        self._ensure_analysis_generation()
         current = self.current_waveform
         timer = getattr(self, "_update_timer", None)
         input_update_pending = timer is not None and timer.isActive()
@@ -361,6 +419,7 @@ class DcmAnalysisWidget(
             and id(current) == waveform_id
             and current.parameters == self.parameters
             and not input_update_pending
+            and self._spectrum_active_generation == self.analysis_generation
         )
 
         if result_is_current:

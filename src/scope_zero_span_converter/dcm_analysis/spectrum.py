@@ -22,6 +22,7 @@ class DcmSpectrum:
     phase_visibility_threshold_dbv: float = -120.0
     phase_dynamic_range_db: float | None = 60.0
     source_waveform_signature: str | None = None
+    analysis_generation: int | None = None
 
     @property
     def source_signature(self) -> str | None:

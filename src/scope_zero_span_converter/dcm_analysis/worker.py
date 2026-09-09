@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Signal
@@ -37,6 +37,7 @@ class SpectrumWorkerTask(QRunnable):
         *,
         request_id: int,
         waveform_id: int,
+        analysis_generation: int | None = None,
         time_s: np.ndarray,
         voltage_v: np.ndarray,
         options: SpectrumWorkerOptions | None = None,
@@ -44,6 +45,9 @@ class SpectrumWorkerTask(QRunnable):
         super().__init__()
         self.request_id = int(request_id)
         self.waveform_id = int(waveform_id)
+        self.analysis_generation = (
+            None if analysis_generation is None else int(analysis_generation)
+        )
         self.time_s = np.asarray(time_s, dtype=float)
         self.voltage_v = np.asarray(voltage_v, dtype=float)
         self.options = options or SpectrumWorkerOptions()
@@ -58,6 +62,10 @@ class SpectrumWorkerTask(QRunnable):
                 amplitude_floor_dbv=self.options.amplitude_floor_dbv,
                 phase_visible_floor_dbv=self.options.phase_visible_floor_dbv,
                 phase_dynamic_range_db=self.options.phase_dynamic_range_db,
+            )
+            spectrum = replace(
+                spectrum,
+                analysis_generation=self.analysis_generation,
             )
         except Exception as exc:
             self.signals.failed.emit(

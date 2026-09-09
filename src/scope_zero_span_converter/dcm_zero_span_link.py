@@ -61,6 +61,7 @@ class DcmZeroSpanResult:
     vbw_hz: float | None
     source_waveform_signature: str | None = None
     source_profile_signature: str | None = None
+    analysis_generation: int | None = None
 
 
 def zero_span_profile_signature(profile: ZeroSpanProfile) -> str:

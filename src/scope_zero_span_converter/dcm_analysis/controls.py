@@ -380,6 +380,9 @@ class DcmAnalysisControls(QWidget):
             return
         value = int(display_value) if key == "random_seed" else self._from_display(key, float(display_value))
         self.parameters = replace(self.parameters, **{key: value})
+        mark_changed = getattr(self, "_mark_analysis_inputs_changed", None)
+        if callable(mark_changed):
+            mark_changed()
         self._update_timer.start()
 
     def _on_profile_changed(self, *_args) -> None:
@@ -394,31 +397,44 @@ class DcmAnalysisControls(QWidget):
             calibration_db=self.calibration_db.value(),
             scope_analog_bandwidth_hz=self.scope_bw_mhz.value() * 1e6,
         )
+        mark_changed = getattr(self, "_mark_analysis_inputs_changed", None)
+        if callable(mark_changed):
+            mark_changed()
         self._update_timer.start()
 
     # ------------------------------------------------------------------
     # Core recompute / plot
     # ------------------------------------------------------------------
+    def _set_linked_analysis_results(
+        self,
+        waveform: DcmSwWaveform | None,
+        zero_span: DcmZeroSpanResult | None,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        """Commit linked results; the formal mixin adds generation binding."""
+
+        del generation
+        self.current_waveform = waveform
+        self.current_zero_span = zero_span
+
     def _recompute(self) -> None:
         # DCM 正向模型和 Zero Span 转换是两个独立状态。即使转换配置暂时无效，
         # 也必须继续允许客户调 DCM 参数并实时刷新上方时域波形。
         try:
             waveform = generate_dcm_sw_waveform(self.parameters)
         except Exception as exc:
-            self.current_waveform = None
-            self.current_zero_span = None
+            self._set_linked_analysis_results(None, None)
             self.current_zero_span_error = None
             self._redraw(dcm_error=str(exc))
             self.status_label.setText(f"当前 DCM 参数组合无效：{exc}")
             LOGGER.debug("DCM 实时生成参数无效: %s", exc)
             return
 
-        self.current_waveform = waveform
-
         try:
             zero = convert_dcm_waveform_to_zero_span(waveform, self.profile)
         except Exception as exc:
-            self.current_zero_span = None
+            self._set_linked_analysis_results(waveform, None)
             self.current_zero_span_error = str(exc)
             self._redraw(zero_span_error=self.current_zero_span_error)
             self.status_label.setText(
@@ -429,7 +445,7 @@ class DcmAnalysisControls(QWidget):
             LOGGER.debug("Zero Span 转换参数无效，但 DCM 继续联动: %s", exc)
             return
 
-        self.current_zero_span = zero
+        self._set_linked_analysis_results(waveform, zero)
         self.current_zero_span_error = None
         self._redraw()
         self.status_label.setText(

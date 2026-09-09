@@ -51,6 +51,7 @@ def export_dcm_analysis_bundle(
     spectrum: DcmSpectrum,
     figure: Any | None = None,
     metadata: dict[str, Any] | None = None,
+    analysis_generation: int | None = None,
 ) -> dict[str, Path]:
     """Export the current DCM analysis workspace as customer-readable files.
 
@@ -64,6 +65,19 @@ def export_dcm_analysis_bundle(
         waveform=waveform,
         zero_span=zero_span,
         spectrum=spectrum,
+        analysis_generation=analysis_generation,
+        completed_generation=analysis_generation,
+        waveform_generation=analysis_generation,
+        zero_span_generation=(
+            zero_span.analysis_generation
+            if analysis_generation is not None
+            else None
+        ),
+        spectrum_generation=(
+            spectrum.analysis_generation
+            if analysis_generation is not None
+            else None
+        ),
     )
     waveform_signature = snapshot.waveform_signature
     profile_signature = snapshot.profile_signature
@@ -128,6 +142,8 @@ def export_dcm_analysis_bundle(
             "zoom_history_exported": False,
         },
         "analysis_snapshot": {
+            "generation": snapshot.generation,
+            "completed": snapshot.completed,
             "waveform_signature": waveform_signature,
             "zero_span_source_waveform_signature": zero_span.source_waveform_signature,
             "zero_span_profile_signature": profile_signature,
@@ -149,6 +165,7 @@ def export_dcm_analysis_bundle(
             "points": len(zero_span.time_s),
             "source_waveform_signature": zero_span.source_waveform_signature,
             "source_profile_signature": zero_span.source_profile_signature,
+            "analysis_generation": zero_span.analysis_generation,
         }
     if spectrum is not None:
         payload["fft"] = {
@@ -161,6 +178,7 @@ def export_dcm_analysis_bundle(
             "phase_visibility_threshold_dbv": spectrum.phase_visibility_threshold_dbv,
             "phase_dynamic_range_db": spectrum.phase_dynamic_range_db,
             "source_waveform_signature": spectrum.source_waveform_signature,
+            "analysis_generation": spectrum.analysis_generation,
         }
     if metadata:
         payload["workspace"] = metadata

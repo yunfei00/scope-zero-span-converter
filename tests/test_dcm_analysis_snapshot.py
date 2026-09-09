@@ -141,6 +141,146 @@ def test_widget_export_rejects_pending_latest_request(qapp):
         widget.validate_current_analysis_snapshot()
 
 
+def test_core_input_changes_advance_generation_and_gate_until_complete(qapp):
+    del qapp
+    widget = DcmAnalysisWidget()
+    initial_generation = widget.analysis_generation
+    assert widget._completed_analysis_generation == initial_generation
+
+    voltage_control = widget._parameter_controls["on_high_voltage_v"]
+    voltage_control.spin.setValue(voltage_control.value() + 1.0)
+
+    parameter_generation = widget.analysis_generation
+    assert parameter_generation == initial_generation + 1
+    assert widget._completed_analysis_generation is None
+    with pytest.raises(
+        AnalysisSnapshotConsistencyError,
+        match=ANALYSIS_UPDATING_MESSAGE,
+    ):
+        widget.validate_current_analysis_snapshot()
+
+    widget._recompute()
+    parameter_snapshot = widget.validate_current_analysis_snapshot()
+    assert parameter_snapshot.generation == parameter_generation
+    assert parameter_snapshot.completed is True
+
+    widget.calibration_db.setValue(widget.calibration_db.value() + 1.0)
+    profile_generation = widget.analysis_generation
+    assert profile_generation == parameter_generation + 1
+    assert widget.current_zero_span is not None
+    assert widget.current_zero_span.analysis_generation == parameter_generation
+    with pytest.raises(
+        AnalysisSnapshotConsistencyError,
+        match=ANALYSIS_UPDATING_MESSAGE,
+    ):
+        widget.validate_current_analysis_snapshot()
+
+    widget._recompute()
+    profile_snapshot = widget.validate_current_analysis_snapshot()
+    assert profile_snapshot.generation == profile_generation
+    assert profile_snapshot.zero_span.analysis_generation == profile_generation
+    assert profile_snapshot.spectrum.analysis_generation == profile_generation
+
+
+def test_waveform_replacement_invalidates_completed_generation(qapp):
+    del qapp
+    widget = DcmAnalysisWidget()
+    original = widget.current_waveform
+    assert original is not None
+    completed_generation = widget.analysis_generation
+
+    changed_voltage = original.voltage_v.copy()
+    changed_voltage[0] += 0.25
+    widget.current_waveform = replace(original, voltage_v=changed_voltage)
+
+    with pytest.raises(
+        AnalysisSnapshotConsistencyError,
+        match=ANALYSIS_UPDATING_MESSAGE,
+    ):
+        widget.validate_current_analysis_snapshot()
+    assert widget.analysis_generation == completed_generation + 1
+    assert widget._completed_analysis_generation is None
+
+
+def test_snapshot_and_export_reject_mixed_result_generations(tmp_path):
+    parameters, profile, waveform, zero_span, spectrum = _analysis()
+    zero_span = replace(zero_span, analysis_generation=4)
+    spectrum = replace(spectrum, analysis_generation=5)
+
+    with pytest.raises(
+        AnalysisSnapshotConsistencyError,
+        match="旧 generation.*Zero Span",
+    ):
+        validate_analysis_snapshot(
+            parameters=parameters,
+            profile=profile,
+            waveform=waveform,
+            zero_span=zero_span,
+            spectrum=spectrum,
+            analysis_generation=5,
+            completed_generation=5,
+            waveform_generation=5,
+            zero_span_generation=4,
+            spectrum_generation=5,
+        )
+
+    with pytest.raises(
+        AnalysisSnapshotConsistencyError,
+        match="旧 generation.*Zero Span",
+    ):
+        export_dcm_analysis_bundle(
+            tmp_path / "stale-generation",
+            parameters=parameters,
+            profile=profile,
+            waveform=waveform,
+            zero_span=zero_span,
+            spectrum=spectrum,
+            analysis_generation=5,
+        )
+    assert not (tmp_path / "stale-generation").exists()
+
+
+def test_latest_completed_generation_exports_current_inputs_and_results(tmp_path, qapp):
+    del qapp
+    widget = DcmAnalysisWidget()
+
+    voltage_control = widget._parameter_controls["on_high_voltage_v"]
+    voltage_control.spin.setValue(voltage_control.value() + 2.0)
+    widget.calibration_db.setValue(widget.calibration_db.value() + 1.5)
+    latest_generation = widget.analysis_generation
+    widget._recompute()
+
+    snapshot = widget.validate_current_analysis_snapshot()
+    outputs = export_dcm_analysis_bundle(
+        tmp_path,
+        parameters=snapshot.parameters,
+        profile=snapshot.profile,
+        waveform=snapshot.waveform,
+        zero_span=snapshot.zero_span,
+        spectrum=snapshot.spectrum,
+        analysis_generation=snapshot.generation,
+    )
+    metadata = json.loads(outputs["metadata_json"].read_text(encoding="utf-8"))
+
+    assert snapshot.generation == latest_generation
+    assert metadata["analysis_snapshot"] == {
+        "generation": latest_generation,
+        "completed": True,
+        "waveform_signature": snapshot.waveform_signature,
+        "zero_span_source_waveform_signature": snapshot.waveform_signature,
+        "zero_span_profile_signature": snapshot.profile_signature,
+        "fft_source_waveform_signature": snapshot.waveform_signature,
+    }
+    assert metadata["dcm_parameters"]["on_high_voltage_v"] == pytest.approx(
+        widget.parameters.on_high_voltage_v
+    )
+    assert metadata["zero_span_profile"]["calibration_db"] == pytest.approx(
+        widget.profile.calibration_db
+    )
+    assert metadata["zero_span_result"]["analysis_generation"] == latest_generation
+    assert metadata["fft"]["analysis_generation"] == latest_generation
+
+
 def test_consistent_snapshot_exports_one_coherent_bundle(tmp_path):
     parameters, profile, waveform, zero_span, spectrum = _analysis()
     figure = Figure(figsize=(5, 3))

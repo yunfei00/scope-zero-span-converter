@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
@@ -16,6 +16,7 @@ from ..dcm_zero_span_link import (
 @dataclass(frozen=True)
 class DcmRecomputeWorkerResult:
     request_id: int
+    request_generation: int
     waveform: DcmSwWaveform | None
     zero_span: DcmZeroSpanResult | None
     dcm_error: str | None = None
@@ -33,11 +34,13 @@ class DcmRecomputeWorkerTask(QRunnable):
         self,
         *,
         request_id: int,
+        request_generation: int,
         parameters: DcmSwParameters,
         profile: ZeroSpanProfile,
     ) -> None:
         super().__init__()
         self.request_id = int(request_id)
+        self.request_generation = int(request_generation)
         self.parameters = deepcopy(parameters)
         self.profile = deepcopy(profile)
         self.signals = DcmRecomputeWorkerSignals()
@@ -50,6 +53,7 @@ class DcmRecomputeWorkerTask(QRunnable):
             self.signals.finished.emit(
                 DcmRecomputeWorkerResult(
                     request_id=self.request_id,
+                    request_generation=self.request_generation,
                     waveform=None,
                     zero_span=None,
                     dcm_error=str(exc),
@@ -63,6 +67,7 @@ class DcmRecomputeWorkerTask(QRunnable):
             self.signals.finished.emit(
                 DcmRecomputeWorkerResult(
                     request_id=self.request_id,
+                    request_generation=self.request_generation,
                     waveform=waveform,
                     zero_span=None,
                     zero_span_error=str(exc),
@@ -70,9 +75,14 @@ class DcmRecomputeWorkerTask(QRunnable):
             )
             return
 
+        zero_span = replace(
+            zero_span,
+            analysis_generation=self.request_generation,
+        )
         self.signals.finished.emit(
             DcmRecomputeWorkerResult(
                 request_id=self.request_id,
+                request_generation=self.request_generation,
                 waveform=waveform,
                 zero_span=zero_span,
             )

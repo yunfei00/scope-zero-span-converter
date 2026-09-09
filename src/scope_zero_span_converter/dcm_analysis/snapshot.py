@@ -21,6 +21,8 @@ class AnalysisSnapshotConsistencyError(ValueError):
 
 @dataclass(frozen=True)
 class AnalysisSnapshot:
+    generation: int | None
+    completed: bool
     parameters: DcmSwParameters
     profile: ZeroSpanProfile
     waveform: DcmSwWaveform
@@ -38,6 +40,11 @@ def validate_analysis_snapshot(
     zero_span: DcmZeroSpanResult | None,
     spectrum: DcmSpectrum | None,
     analysis_updating: bool = False,
+    analysis_generation: int | None = None,
+    completed_generation: int | None = None,
+    waveform_generation: int | None = None,
+    zero_span_generation: int | None = None,
+    spectrum_generation: int | None = None,
 ) -> AnalysisSnapshot:
     """Validate one complete DCM/Zero Span/FFT export snapshot.
 
@@ -48,6 +55,28 @@ def validate_analysis_snapshot(
 
     if analysis_updating:
         raise AnalysisSnapshotConsistencyError(ANALYSIS_UPDATING_MESSAGE)
+    if analysis_generation is not None:
+        generation = int(analysis_generation)
+        if completed_generation != generation:
+            raise AnalysisSnapshotConsistencyError(
+                "当前分析快照尚未完成或已经过期，无法导出。"
+            )
+        layer_generations = {
+            "DCM waveform": waveform_generation,
+            "Zero Span": zero_span_generation,
+            "FFT": spectrum_generation,
+        }
+        stale_layers = [
+            name
+            for name, result_generation in layer_generations.items()
+            if result_generation != generation
+        ]
+        if stale_layers:
+            raise AnalysisSnapshotConsistencyError(
+                "当前分析包含旧 generation 结果："
+                + ", ".join(stale_layers)
+                + "。请等待最新计算完成后再导出。"
+            )
     if waveform is None:
         raise AnalysisSnapshotConsistencyError("当前没有有效 DCM 波形，无法导出。")
     if waveform.parameters != parameters:
@@ -74,6 +103,13 @@ def validate_analysis_snapshot(
         raise AnalysisSnapshotConsistencyError(
             "Zero Span 结果不对应当前转换参数，请等待联动完成后再导出。"
         )
+    if (
+        analysis_generation is not None
+        and zero_span.analysis_generation != analysis_generation
+    ):
+        raise AnalysisSnapshotConsistencyError(
+            "Zero Span 结果属于旧 analysis generation，无法导出。"
+        )
 
     if spectrum is None or spectrum.points == 0:
         raise AnalysisSnapshotConsistencyError(
@@ -83,8 +119,17 @@ def validate_analysis_snapshot(
         raise AnalysisSnapshotConsistencyError(
             "FFT 幅度/相位结果属于旧 DCM 波形，请等待 FFT 完成后再导出。"
         )
+    if (
+        analysis_generation is not None
+        and spectrum.analysis_generation != analysis_generation
+    ):
+        raise AnalysisSnapshotConsistencyError(
+            "FFT 幅度/相位结果属于旧 analysis generation，无法导出。"
+        )
 
     return AnalysisSnapshot(
+        generation=analysis_generation,
+        completed=True,
         parameters=parameters,
         profile=profile,
         waveform=waveform,
