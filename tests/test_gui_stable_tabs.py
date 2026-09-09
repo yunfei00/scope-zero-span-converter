@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scope_zero_span_converter import __version__
-from scope_zero_span_converter.gui_v05 import MainWindow
+from scope_zero_span_converter.main_window import MainWindow
 
 
 @pytest.fixture(scope="module")

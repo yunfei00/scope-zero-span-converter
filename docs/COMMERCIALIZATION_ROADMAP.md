@@ -52,6 +52,8 @@
 
 ```text
 src/scope_zero_span_converter/
+  main_window.py
+  research_workspace.py
   dcm_analysis/
     __init__.py
     widget.py
@@ -93,6 +95,7 @@ src/scope_zero_span_converter/
 - [x] 正式 `zoom_interaction.py` 接管 Rectangle Zoom、Space 多级返回、Zoom 范围应用和显示轴变更后的 Zoom 清理；生产运行逻辑不再依赖 v6 方法体。
 - [x] 正式 `recompute.py` / `recompute_worker.py` 接管大 DCM + Zero Span 的 latest-wins 后台联动调度。
 - [x] 正式 `snapshot.py` 统一校验 DCM 参数、波形、Zero Span Profile/结果和幅相 FFT 的同源快照，Worker/debounce/pending 状态未收敛时禁止导出。
+- [x] 正式生产入口 `app.py -> main_window.MainWindow` 已直接组合无版本 `research_workspace.py` 与五个工作区，不再 import 或继承 `gui_v04` / `gui_v05`；两者仅保留兼容别名。
 - [ ] 将历史链中剩余“控件构造”职责移入正式模块；当前 v2/v5/v6 等仍在构造期提供已验证控件和初始信号连接。
 - [ ] 保留旧模块一段兼容期后，正式测试逐步退出对旧版本模块的直接引用。
 
@@ -101,6 +104,7 @@ src/scope_zero_span_converter/
 - DCM 三个主页面均从无版本号正式 package 入口进入。
 - 四视图绘制不再由 v4/v10 的 `_redraw` / 频谱绘制实现承担。
 - 正式入口已接管频域坐标、Zoom 和大数据联动重计算运行逻辑。
+- 正式 MainWindow 已接管 ROI latest-wins、完整转换 Worker、批量 Worker/进度/协作式取消及诊断导出。
 - 四视图行为与 v0.7 完全一致。
 - 旧 JSON / CSV 兼容测试全部通过。
 - 不再新增版本号 widget 文件。

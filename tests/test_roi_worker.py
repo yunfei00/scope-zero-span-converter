@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 
 from scope_zero_span_converter.config import AppConfig
-from scope_zero_span_converter.gui_v05 import MainWindow
+from scope_zero_span_converter.main_window import MainWindow
 from scope_zero_span_converter.roi_worker import RoiConversionWorkerTask
 
 
