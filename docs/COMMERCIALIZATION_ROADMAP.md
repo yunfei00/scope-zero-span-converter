@@ -91,6 +91,7 @@ src/scope_zero_span_converter/
 - [x] 抽离综合分析导出逻辑到 `dcm_analysis/exporter.py`，GUI 只负责选择目录和传入当前状态。
 - [x] 抽离四图绘制层到 `dcm_analysis/plots.py`；正式 widget 已接管 2×2 布局，左列共享绝对时间，右列共享同一 FFT 频率轴。
 - [x] DCM Generator / Extractor 建立正式 `dcm_generator/`、`dcm_extractor/` 入口；主界面不再直接引用 `*_v3` / `*_v7`。
+- [x] 正式 `dcm_generator/widget.py` 已直接实现完整 Generator QWidget，生产 MRO/import 不再依赖 `dcm_sw_generator_widget_v2` / `v3`；旧入口仅保留反向兼容别名，历史波形恢复与绝对 `time_origin_s` 语义保持。
 - [x] 正式 `frequency_axis.py` 接管频域自动适配、手动当前帧、范围/步长回填和频域 Zoom 清理；生产运行逻辑不再依赖 v5/v8/v9 方法体。
 - [x] 正式 `zoom_interaction.py` 接管 Rectangle Zoom、Space 多级返回、Zoom 范围应用和显示轴变更后的 Zoom 清理；生产运行逻辑不再依赖 v6 方法体。
 - [x] 正式 `recompute.py` / `recompute_worker.py` 接管大 DCM + Zero Span 的 latest-wins 后台联动调度。

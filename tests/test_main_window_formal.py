@@ -66,10 +66,17 @@ def test_formal_main_window_composes_five_stable_workspaces():
         "dcm_analysis",
         "batch_conversion",
     ]
-    assert isinstance(window.dcm_generator_tab, DcmSwGeneratorWidget)
+    assert type(window.dcm_generator_tab) is DcmSwGeneratorWidget
     assert isinstance(window.dcm_extractor_tab, DcmParameterExtractorWidget)
     assert type(window.dcm_analysis_tab) is DcmAnalysisWidget
     assert window.dcm_zero_span_tab is window.dcm_analysis_tab
+
+    generated = window.dcm_generator_tab.current_waveform
+    assert generated is not None
+    window.dcm_generator_tab.send_to_research()
+    assert window.tabs.currentWidget() is window.research_tab
+    np.testing.assert_array_equal(window.waveform_time, generated.time_s)
+    np.testing.assert_array_equal(window.waveform_voltage, generated.voltage_v)
 
 
 def test_formal_main_window_dispatches_all_conversion_workers(tmp_path):
