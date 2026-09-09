@@ -6,7 +6,6 @@ import numpy as np
 from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from ..dcm_analysis_widget import DcmAnalysisWidget as _CompatibilityDcmAnalysisWidget
 from ..dcm_sw_generator import DcmSwWaveform, load_dcm_sw_parameters, save_dcm_sw_parameters
 from ..dcm_zero_span_link import load_zero_span_profile, save_zero_span_profile
 from ..waveform_quality import waveform_signature
@@ -19,18 +18,21 @@ from .plots import (
     draw_time_domain_panel,
     draw_zero_span_panel,
 )
+from .presentation import DcmAnalysisPresentationMixin
 from .recompute import DcmRecomputeMixin
 from .snapshot import AnalysisSnapshotConsistencyError, validate_analysis_snapshot
 from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
+from .view import DcmAnalysisView
 from .zoom_interaction import ZoomInteractionMixin
 
 
 class DcmAnalysisWidget(
+    DcmAnalysisPresentationMixin,
     FrequencyAxisMixin,
     DcmRecomputeMixin,
     ZoomInteractionMixin,
-    _CompatibilityDcmAnalysisWidget,
+    DcmAnalysisView,
 ):
     """Formal DCM analysis widget owning the production four-panel layout.
 

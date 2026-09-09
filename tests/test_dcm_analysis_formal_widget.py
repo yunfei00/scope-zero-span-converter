@@ -8,6 +8,9 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
+from scope_zero_span_converter.dcm_analysis_widget import (
+    DcmAnalysisWidget as CompatibilityDcmAnalysisWidget,
+)
 from scope_zero_span_converter.gui_v05 import DcmAnalysisWidget as MainWindowDcmAnalysisWidget
 
 
@@ -21,7 +24,18 @@ def qapp():
 
 def test_main_window_imports_formal_dcm_analysis_widget():
     assert MainWindowDcmAnalysisWidget is DcmAnalysisWidget
+    assert CompatibilityDcmAnalysisWidget is DcmAnalysisWidget
     assert DcmAnalysisWidget.__module__ == "scope_zero_span_converter.dcm_analysis.widget"
+
+
+def test_formal_widget_mro_excludes_versioned_legacy_gui_chain():
+    mro_modules = [base.__module__ for base in DcmAnalysisWidget.mro()]
+
+    assert "scope_zero_span_converter.dcm_analysis_widget" not in mro_modules
+    assert not any(
+        module.rsplit(".", 1)[-1].startswith("dcm_zero_span_widget_v")
+        for module in mro_modules
+    )
 
 
 def test_formal_widget_owns_four_panel_layout_and_shared_axes(qapp):

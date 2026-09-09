@@ -14,10 +14,9 @@ _DISPLAY_SUFFIX = "（显示抽样；分析/导出仍用全数据）"
 class ZoomInteractionMixin:
     """Production Rectangle-Zoom behavior backed by formal ``ZoomState``.
 
-    During migration the compatibility constructor still creates ``_zoom_state``
-    and installs the initial canvas callbacks. All runtime callbacks and redraw
-    application are implemented here so production behavior no longer depends on
-    the historical v6 method bodies.
+    ``DcmAnalysisView`` creates ``_zoom_state`` and installs the initial canvas
+    callbacks. All runtime callbacks and redraw application live here, independent
+    of the historical v6 method bodies.
     """
 
     _normalized_bounds = staticmethod(normalized_bounds)

@@ -25,7 +25,7 @@ class _PendingRecompute:
 class DcmRecomputeMixin:
     """Latest-wins background scheduling for large DCM + Zero Span recomputes.
 
-    The compatibility widget remains the source of the validated synchronous
+    ``DcmAnalysisControls`` remains the source of the validated synchronous
     recompute behavior. Small waveforms use that path unchanged. Large jobs are
     moved to a worker so slider interaction does not block the Qt GUI thread.
 
@@ -42,8 +42,8 @@ class DcmRecomputeMixin:
     RECOMPUTE_BACKGROUND_THRESHOLD_POINTS = 250_000
 
     def __init__(self, *args, **kwargs) -> None:
-        # These fields must exist before the compatibility constructor runs,
-        # because that constructor dynamically calls self._recompute().
+        # These fields must exist before the control constructor runs because it
+        # dynamically calls self._recompute().
         self._recompute_request_seq = 0
         self._recompute_latest_request_id = 0
         self._recompute_worker_running = False
@@ -85,7 +85,7 @@ class DcmRecomputeMixin:
         estimated_points = self._estimated_recompute_points(parameters)
 
         # Keep the established immediate path for normal customer workloads and
-        # all invalid/degenerate combinations. The compatibility implementation
+        # all invalid/degenerate combinations. The control implementation
         # owns the exact error/status semantics for that path.
         if (
             estimated_points <= 0
