@@ -24,6 +24,8 @@ def test_export_bundle_writes_png_csv_and_metadata(tmp_path):
 
     outputs = export_dcm_analysis_bundle(
         tmp_path,
+        parameters=waveform.parameters,
+        profile=ZeroSpanProfile(),
         waveform=waveform,
         zero_span=zero_span,
         spectrum=spectrum,
@@ -46,6 +48,9 @@ def test_export_bundle_writes_png_csv_and_metadata(tmp_path):
     assert payload["semantics"]["zero_span"].startswith("fixed RF center")
     assert payload["zero_span_result"]["center_frequency_hz"] == 200e6
     assert payload["fft"]["window"] == "hann"
+    assert payload["analysis_snapshot"]["waveform_signature"] == (
+        spectrum.source_waveform_signature
+    )
     assert "zoom_history" not in payload["workspace"]
     assert set(payload["data_files"]) >= {
         "time_domain_csv",

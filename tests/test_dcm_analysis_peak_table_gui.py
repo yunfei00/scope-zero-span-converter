@@ -57,9 +57,12 @@ def test_peak_table_refreshes_after_dcm_parameter_change(qapp):
         for row in range(widget.peak_table.rowCount())
     ]
 
-    control = widget._parameter_controls["spike_ringing_frequency_hz"]
-    control.setValue(140.0)
-    widget._on_parameter_changed("spike_ringing_frequency_hz", control.value())
+    control = widget._parameter_controls["discontinuous_resonance_frequency_hz"]
+    control.setValue(20.0)
+    widget._on_parameter_changed(
+        "discontinuous_resonance_frequency_hz",
+        control.value(),
+    )
     widget._recompute()
 
     after = [

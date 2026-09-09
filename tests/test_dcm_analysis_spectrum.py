@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from scope_zero_span_converter.dcm_analysis.spectrum import compute_dcm_spectrum
+from scope_zero_span_converter.dcm_analysis.spectrum import (
+    compute_dcm_spectrum,
+    waveform_signature,
+)
 
 
 def test_dcm_spectrum_returns_common_magnitude_phase_bins():
@@ -53,3 +56,17 @@ def test_invalid_spectrum_input_returns_empty_result():
     assert result.points == 0
     assert len(result.amplitude_dbv) == 0
     assert len(result.phase_deg) == 0
+
+
+def test_waveform_signature_changes_when_only_voltage_data_changes():
+    fs = 1e9
+    time_s = np.arange(10_000, dtype=float) / fs
+    voltage_a = np.sin(2.0 * np.pi * 50e6 * time_s)
+    voltage_b = voltage_a.copy()
+    voltage_b[5_000] += 1e-9
+
+    assert len(voltage_a) == len(voltage_b)
+    assert waveform_signature(time_s, voltage_a) != waveform_signature(
+        time_s,
+        voltage_b,
+    )

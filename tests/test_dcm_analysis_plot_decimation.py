@@ -88,3 +88,33 @@ def test_magnitude_and_phase_use_identical_reduced_frequency_samples():
 
     spike_mhz = frequency_hz[31_337] / 1e6
     assert np.any(np.isclose(mag_x, spike_mhz, rtol=0.0, atol=1e-12))
+
+
+def test_magnitude_and_phase_use_identical_full_frequency_samples():
+    points = 8_000
+    frequency_hz = np.linspace(0.0, 500e6, points)
+    spectrum = DcmSpectrum(
+        frequency_hz=frequency_hz,
+        amplitude_dbv=-80.0 + np.sin(np.linspace(0.0, 30.0, points)),
+        phase_deg=np.linspace(-180.0, 180.0, points),
+        sample_interval_s=1e-9,
+    )
+
+    figure = Figure()
+    ax_mag = figure.add_subplot(211)
+    ax_phase = figure.add_subplot(212)
+    draw_magnitude_spectrum_panel(
+        ax_mag,
+        spectrum,
+        center_frequency_hz=200e6,
+        rbw_hz=10e6,
+    )
+    draw_phase_spectrum_panel(
+        ax_phase,
+        spectrum,
+        center_frequency_hz=200e6,
+        rbw_hz=10e6,
+    )
+
+    assert np.array_equal(ax_mag.lines[0].get_xdata(), frequency_hz / 1e6)
+    assert np.array_equal(ax_phase.lines[0].get_xdata(), frequency_hz / 1e6)

@@ -93,7 +93,10 @@ def test_time_marker_voltage_refreshes_after_dcm_parameter_change(qapp):
     waveform = widget.current_waveform
     assert waveform is not None
 
-    high_region_index = int(len(waveform.time_s) * 0.30)
+    high_region_time_s = 0.5 * (
+        waveform.events.rise_end_s + waveform.events.high_end_s
+    )
+    high_region_index = int(np.argmin(np.abs(waveform.time_s - high_region_time_s)))
     marker_time_us = float(waveform.time_s[high_region_index]) * 1e6
     widget.time_marker_a_time_us.setValue(marker_time_us)
     widget.time_marker_a_enable.setChecked(True)

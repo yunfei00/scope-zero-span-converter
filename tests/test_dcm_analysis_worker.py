@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +11,14 @@ from PySide6.QtWidgets import QApplication
 from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 from scope_zero_span_converter.dcm_analysis.worker import SpectrumWorkerTask
 from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters, generate_dcm_sw_waveform
+
+
+class _ManualPool:
+    def __init__(self) -> None:
+        self.tasks = []
+
+    def start(self, task) -> None:
+        self.tasks.append(task)
 
 
 @pytest.fixture(scope="module")
@@ -84,3 +93,46 @@ def test_large_waveform_path_schedules_worker_instead_of_sync_fft(qapp, monkeypa
 
     assert result is None
     assert scheduled == [waveform]
+
+
+def test_fft_worker_cannot_paint_during_parameter_debounce(qapp):
+    del qapp
+    widget = DcmAnalysisWidget()
+    assert widget.current_waveform is not None
+
+    pool = _ManualPool()
+    widget._spectrum_thread_pool = pool
+    widget.FFT_BACKGROUND_THRESHOLD_POINTS = 1
+    widget._spectrum_cache_waveform = None
+    widget._spectrum_cache = None
+    widget._redraw(zero_span_error=widget.current_zero_span_error)
+    assert len(pool.tasks) == 1
+
+    widget.parameters = replace(
+        widget.parameters,
+        on_high_voltage_v=widget.parameters.on_high_voltage_v + 1.0,
+    )
+    widget._update_timer.start()
+    pool.tasks[0].run()
+
+    assert widget._spectrum_worker_running is False
+    assert widget._spectrum_cache is None
+    assert widget._update_timer.isActive()
+    widget._update_timer.stop()
+
+
+def test_stale_fft_signal_cannot_release_newer_active_worker(qapp):
+    del qapp
+    widget = DcmAnalysisWidget()
+    waveform = widget.current_waveform
+    spectrum = widget._spectrum_cache
+    assert waveform is not None
+    assert spectrum is not None
+
+    widget._spectrum_worker_running = True
+    widget._spectrum_active_request_id = 12
+    widget._spectrum_active_waveform_id = id(waveform)
+    widget._on_spectrum_worker_finished(11, id(waveform), spectrum)
+
+    assert widget._spectrum_worker_running is True
+    assert widget._spectrum_active_request_id == 12

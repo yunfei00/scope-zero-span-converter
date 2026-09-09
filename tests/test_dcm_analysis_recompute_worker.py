@@ -35,7 +35,7 @@ def test_recompute_worker_returns_dcm_and_zero_span(qapp):
     captured = []
     task = DcmRecomputeWorkerTask(
         request_id=7,
-        parameters=DcmSwParameters(sample_rate_hz=200e6, total_duration_s=4e-6),
+        parameters=DcmSwParameters(sample_rate_hz=200e6, total_duration_s=10e-6),
         profile=ZeroSpanProfile(
             center_frequency_hz=40e6,
             rbw_hz=5e6,
@@ -113,3 +113,20 @@ def test_worker_cannot_overwrite_parameter_changed_inside_debounce_window(qapp):
     assert widget._recompute_worker_running is False
     assert widget.current_waveform is original_waveform
     assert widget.parameters.on_high_voltage_v == pytest.approx(19.0)
+
+
+def test_stale_recompute_signal_cannot_release_newer_active_worker(qapp):
+    del qapp
+    widget = DcmAnalysisWidget()
+    widget._recompute_worker_running = True
+    widget._recompute_active_request_id = 22
+
+    stale = type(
+        "StaleResult",
+        (),
+        {"request_id": 21},
+    )()
+    widget._on_recompute_worker_finished(stale)
+
+    assert widget._recompute_worker_running is True
+    assert widget._recompute_active_request_id == 22

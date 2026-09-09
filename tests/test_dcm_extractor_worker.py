@@ -4,13 +4,17 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
+
 from scope_zero_span_converter.dcm_discontinuous_extractor import (
     extract_dcm_discontinuous_resonance,
 )
 from scope_zero_span_converter.dcm_extractor.worker import GlobalRefinementWorkerTask
+from scope_zero_span_converter.dcm_extractor.widget import DcmParameterExtractorWidget
 from scope_zero_span_converter.dcm_parameter_extractor import extract_dcm_basic_parameters
 from scope_zero_span_converter.dcm_ringing_extractor import extract_dcm_edge_ringing
 from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters, generate_dcm_sw_waveform
+from scope_zero_span_converter.waveform_quality import waveform_signature
 
 
 def test_global_refinement_worker_runs_without_qwidget_access():
@@ -61,3 +65,23 @@ def test_global_refinement_worker_runs_without_qwidget_access():
     assert request_id == 11
     assert result.optimized_reconstruction_v.shape == waveform.voltage_v.shape
     assert result.final_residual_v.shape == waveform.voltage_v.shape
+
+
+def test_global_refinement_source_guard_rejects_changed_waveform():
+    time_s = np.arange(100, dtype=float) * 1e-9
+    voltage_v = np.zeros(100, dtype=float)
+    stage_results = (object(), object(), object())
+    holder = type("Holder", (), {})()
+    holder.time_s = time_s
+    holder.voltage_v = voltage_v
+    holder.result, holder.ringing_result, holder.dcm_result = stage_results
+    holder._global_refinement_active_inputs = stage_results
+    holder._global_refinement_active_source_signature = waveform_signature(
+        time_s,
+        voltage_v,
+    )
+
+    assert DcmParameterExtractorWidget._global_refinement_source_is_current(holder)
+    holder.voltage_v = voltage_v.copy()
+    holder.voltage_v[50] = 1.0
+    assert not DcmParameterExtractorWidget._global_refinement_source_is_current(holder)

@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 
 from scope_zero_span_converter.config import AppConfig
+from scope_zero_span_converter.gui_v05 import MainWindow
 from scope_zero_span_converter.roi_worker import RoiConversionWorkerTask
 
 
@@ -47,3 +48,28 @@ def test_roi_worker_converts_region_without_qwidget_access(tmp_path):
     assert len(payload.conversion.time_s) == len(t)
     assert payload.conversion.center_frequency_hz == 200e6
     assert payload.conversion.rbw_hz == 10e6
+
+
+def test_disabling_auto_update_still_invalidates_active_roi_request():
+    class _Unchecked:
+        @staticmethod
+        def isChecked():
+            return False
+
+    class _Timer:
+        started = False
+
+        def start(self):
+            self.started = True
+
+    holder = type("Holder", (), {})()
+    holder._roi_generation = 10
+    holder._roi_pending_payload = object()
+    holder.auto_update_roi_check = _Unchecked()
+    holder._conversion_timer = _Timer()
+
+    MainWindow._schedule_region_conversion(holder)
+
+    assert holder._roi_generation == 11
+    assert holder._roi_pending_payload is None
+    assert holder._conversion_timer.started is False
