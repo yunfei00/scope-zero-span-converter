@@ -194,6 +194,9 @@ class DcmRecomputeMixin:
         return int(np.floor(product)) + 1
 
     def _recompute(self) -> None:
+        if getattr(self, "_shutting_down", False):
+            self._recompute_pending = None
+            return
         timer = getattr(self, "_update_timer", None)
         if timer is not None and timer.isActive():
             # A direct recompute (file load/workspace restore/test hook) consumes
@@ -240,6 +243,9 @@ class DcmRecomputeMixin:
         self._start_recompute_worker(pending)
 
     def _start_recompute_worker(self, pending: _PendingRecompute) -> None:
+        if getattr(self, "_shutting_down", False):
+            self._recompute_pending = None
+            return
         task = DcmRecomputeWorkerTask(
             request_id=pending.request_id,
             request_generation=pending.request_generation,
@@ -276,6 +282,11 @@ class DcmRecomputeMixin:
         if not is_active:
             # A delayed signal from a superseded task must not release or mutate
             # the worker that currently owns the scheduling slot.
+            return
+        if getattr(self, "_shutting_down", False):
+            self._release_recompute_worker()
+            self._recompute_pending = None
+            LOGGER.info("DCM recompute worker completed during shutdown")
             return
         self._ensure_analysis_generation()
         snapshots_still_current = (

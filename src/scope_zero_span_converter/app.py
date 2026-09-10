@@ -13,6 +13,24 @@ from .workspace import apply_dcm_analysis_workspace, collect_dcm_analysis_worksp
 LOGGER = get_logger()
 
 
+def collect_app_state(window: MainWindow) -> AppState:
+    """Collect state while the accepted main window is still alive."""
+
+    config = window.collect_config()
+    current_index = window.tabs.currentIndex()
+    return AppState(
+        config=config,
+        selected_tab=current_index,
+        selected_tab_id=window.tab_id_for_index(current_index),
+        selected_template=window.template_combo.currentText(),
+        workspace={
+            "dcm_analysis": collect_dcm_analysis_workspace(
+                window.dcm_analysis_tab
+            )
+        },
+    )
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     window = MainWindow()
@@ -47,21 +65,7 @@ def main() -> int:
 
     def persist_state() -> None:
         try:
-            config = window.collect_config()
-            current_index = window.tabs.currentIndex()
-            save_state(
-                AppState(
-                    config=config,
-                    selected_tab=current_index,
-                    selected_tab_id=window.tab_id_for_index(current_index),
-                    selected_template=window.template_combo.currentText(),
-                    workspace={
-                        "dcm_analysis": collect_dcm_analysis_workspace(
-                            window.dcm_analysis_tab
-                        )
-                    },
-                )
-            )
+            save_state(collect_app_state(window))
             LOGGER.info("已保存最近使用状态")
         except Exception:
             LOGGER.exception("保存最近使用状态失败")

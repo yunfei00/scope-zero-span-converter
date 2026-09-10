@@ -198,6 +198,9 @@ src/scope_zero_span_converter/
 - [x] DCM recompute、FFT、ROI 与全局精修补齐输入快照/latest-wins 校验；包含“控件已变但 debounce 尚未触发”的旧结果拒绝路径。
 - [x] GUI 主要重计算路径已移出主线程；小于阈值的即时任务继续同步以保持实时手感。
 - [x] 全局精修增加唯一优化内核级可中断检查后，再支持真正的精修 Cancel；禁止复制第二套优化算法实现。
+- [x] 统一安全退出与后台任务生命周期治理：可取消任务请求 cooperative cancel；正在写入文件的完整转换不暴力终止；active worker 全部结束后自动退出；shutdown 后不再启动 debounce/pending 任务。
+
+至此 Phase 4 的软件运行时稳定性已基本收口；后续工作应聚焦产品交付收尾和发布前验证，避免继续扩张 GUI 架构重构范围。
 
 ### 日志/诊断
 

@@ -56,6 +56,7 @@ class DcmSwGeneratorWidget(QWidget):
         super().__init__(parent)
         self.current_waveform: DcmSwWaveform | None = None
         self._updating_controls = False
+        self._shutting_down = False
 
         # 拖滑块时数值框立即更新，波形用短防抖避免连续重绘把 GUI 拖慢。
         self._auto_timer = QTimer(self)
@@ -413,7 +414,11 @@ class DcmSwGeneratorWidget(QWidget):
     # Generation / plotting
     # ------------------------------------------------------------------
     def _schedule_generate(self, *_args) -> None:
-        if self._updating_controls or not self.auto_generate_check.isChecked():
+        if (
+            self._shutting_down
+            or self._updating_controls
+            or not self.auto_generate_check.isChecked()
+        ):
             return
         self._auto_timer.start()
 
@@ -425,6 +430,8 @@ class DcmSwGeneratorWidget(QWidget):
         self._generate(show_error=True)
 
     def _generate(self, *, show_error: bool) -> None:
+        if self._shutting_down:
+            return
         try:
             waveform = generate_dcm_sw_waveform(self.collect_parameters())
             self.current_waveform = waveform
@@ -443,6 +450,12 @@ class DcmSwGeneratorWidget(QWidget):
             self.status_label.setText(f"参数无效：{exc}")
             if show_error:
                 QMessageBox.warning(self, "DCM SW 参数无效", str(exc))
+
+    def begin_shutdown(self) -> None:
+        """Stop deferred generation before the containing window closes."""
+
+        self._shutting_down = True
+        self._auto_timer.stop()
 
     def _on_truth_components_changed(self, *_args) -> None:
         if self.current_waveform is not None:

@@ -367,7 +367,14 @@ def test_close_requests_global_refinement_cancellation(qapp):
     widget.close()
 
     assert task.cancel_requested is True
+    assert widget._global_refinement_active_request_id is not None
+    assert widget.has_active_background_tasks() is True
+
+    widget._on_global_refinement_cancelled(
+        widget._global_refinement_active_request_id
+    )
     assert widget._global_refinement_active_request_id is None
+    assert widget.has_active_background_tasks() is False
 
 
 def test_formal_json_export_keeps_stable_semantics(qapp, tmp_path):

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -61,6 +61,9 @@ class MainWindow(ResearchWorkspaceWindow):
         self._roi_active_request_id: int | None = None
         self._roi_task: RoiConversionWorkerTask | None = None
         self._roi_pending_payload: tuple | None = None
+        self._shutdown_requested = False
+        self._shutdown_ready = False
+        self._shutdown_close_scheduled = False
 
         super().__init__()
         self.setWindowTitle(
@@ -86,10 +89,128 @@ class MainWindow(ResearchWorkspaceWindow):
         # 保留旧属性名，避免外部脚本/既有测试在商业化收口期间失效。
         self.dcm_zero_span_tab = self.dcm_analysis_tab
         self.tabs.insertTab(3, self.dcm_analysis_tab, "DCM 综合分析")
+        self._shutdown_poll_timer = QTimer(self)
+        self._shutdown_poll_timer.setInterval(75)
+        self._shutdown_poll_timer.timeout.connect(self._maybe_finish_shutdown)
         self._install_diagnostic_export_button()
         LOGGER.info(
             "DCM generator, extractor, magnitude/phase spectrum and Zero Span linked page ready"
         )
+
+    # ------------------------------------------------------------------
+    # Safe application shutdown
+    # ------------------------------------------------------------------
+    def _shutdown_task_summary(self) -> tuple[str, ...]:
+        active: list[str] = []
+        if self._roi_task is not None:
+            active.append("ROI large conversion")
+        if self._conversion_task is not None:
+            active.append("Full Conversion + save")
+        if self._batch_task is not None:
+            active.append("Batch Conversion")
+        if self.dcm_extractor_tab.has_active_background_tasks():
+            active.append("DCM Extractor Global Refinement")
+        if self.dcm_analysis_tab._spectrum_active_task is not None:
+            active.append("DCM Analysis Spectrum")
+        if self.dcm_analysis_tab._recompute_active_task is not None:
+            active.append("DCM Analysis Recompute")
+        return tuple(active)
+
+    def has_active_background_tasks(self) -> bool:
+        """Return whether closing must wait for a worker terminal signal."""
+
+        return bool(self._shutdown_task_summary())
+
+    def _confirm_safe_shutdown(self) -> bool:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("后台任务仍在运行")
+        box.setText(
+            "当前仍有后台任务正在运行。\n\n"
+            "程序将停止启动新的任务，取消可安全取消的任务，并等待当前正在写入/"
+            "计算的不可中断步骤完成后自动退出，以避免结果文件损坏。\n\n"
+            "是否继续安全退出？"
+        )
+        safe_button = box.addButton("安全退出", QMessageBox.AcceptRole)
+        box.addButton("返回程序", QMessageBox.RejectRole)
+        box.exec()
+        return box.clickedButton() is safe_button
+
+    def begin_shutdown(self, *, auto_close: bool = True) -> None:
+        """Stop deferred work, request safe cancellation, and await terminals."""
+
+        if not self._shutdown_requested:
+            self._shutdown_requested = True
+            self._roi_generation += 1
+            self._roi_pending_payload = None
+            self._conversion_timer.stop()
+            self._roi_controls_timer.stop()
+
+            self.dcm_generator_tab.begin_shutdown()
+            self.dcm_extractor_tab.begin_shutdown()
+            self.dcm_analysis_tab.begin_shutdown()
+
+            if self._batch_task is not None:
+                self._batch_task.cancel()
+                LOGGER.info("safe shutdown requested batch cancellation")
+            if self.dcm_extractor_tab.has_active_background_tasks():
+                LOGGER.info("safe shutdown requested global refinement cancellation")
+            if self._conversion_task is not None:
+                LOGGER.info("safe shutdown waiting for full conversion save")
+
+            for button in (
+                self.convert_button,
+                self.run_batch_button,
+                self.scan_batch_button,
+                self.cancel_batch_button,
+            ):
+                button.setEnabled(False)
+            self.status_label.setText("正在安全退出：等待后台任务结束…")
+            LOGGER.info(
+                "safe shutdown requested active_tasks=%s",
+                ", ".join(self._shutdown_task_summary()) or "none",
+            )
+
+        if self.has_active_background_tasks():
+            if not self._shutdown_poll_timer.isActive():
+                self._shutdown_poll_timer.start()
+        elif auto_close:
+            self._maybe_finish_shutdown()
+
+    def _maybe_finish_shutdown(self) -> None:
+        if (
+            not self._shutdown_requested
+            or self._shutdown_ready
+            or self.has_active_background_tasks()
+        ):
+            return
+        self._shutdown_poll_timer.stop()
+        self._shutdown_ready = True
+        LOGGER.info("safe shutdown complete")
+        if not self._shutdown_close_scheduled:
+            self._shutdown_close_scheduled = True
+            QTimer.singleShot(0, self.close)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if self._shutdown_ready:
+            self._shutdown_poll_timer.stop()
+            event.accept()
+            return
+        if self._shutdown_requested:
+            event.ignore()
+            self._maybe_finish_shutdown()
+            return
+        if not self.has_active_background_tasks():
+            self.begin_shutdown(auto_close=False)
+            self._shutdown_ready = True
+            event.accept()
+            return
+        if not self._confirm_safe_shutdown():
+            event.ignore()
+            return
+
+        event.ignore()
+        self.begin_shutdown()
 
     def tab_id_for_index(self, index: int) -> str:
         """Return a stable tab identifier instead of persisting a fragile index."""
@@ -119,6 +240,8 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def load_waveform_from_ui(self) -> None:
         """Load through the base workflow, then expose the shared quality report."""
+        if self._shutdown_requested:
+            return
         # Any in-flight large ROI result belongs to the previously loaded source.
         # Advancing generation makes it stale immediately, before the new 250 ms
         # debounce timer fires.
@@ -147,6 +270,9 @@ class MainWindow(ResearchWorkspaceWindow):
     # ROI conversion: small synchronous / large latest-wins worker
     # ------------------------------------------------------------------
     def _schedule_region_conversion(self) -> None:
+        if getattr(self, "_shutdown_requested", False):
+            self._roi_pending_payload = None
+            return
         # Invalidate the active result immediately, including when automatic ROI
         # updates were just disabled.  Otherwise an older worker could repaint
         # data after the customer changed the ROI/config during its debounce gap.
@@ -157,6 +283,9 @@ class MainWindow(ResearchWorkspaceWindow):
         self._conversion_timer.start()
 
     def update_region_conversion(self) -> None:
+        if self._shutdown_requested:
+            self._roi_pending_payload = None
+            return
         if self.waveform_time is None:
             return
         metadata = Path(self.metadata_edit.text().strip())
@@ -211,6 +340,9 @@ class MainWindow(ResearchWorkspaceWindow):
         self._start_roi_worker(payload)
 
     def _start_roi_worker(self, payload: tuple) -> None:
+        if self._shutdown_requested:
+            self._roi_pending_payload = None
+            return
         request_id, t, v, metadata, cfg, origin_s = payload
         task = RoiConversionWorkerTask(
             request_id=request_id,
@@ -235,7 +367,7 @@ class MainWindow(ResearchWorkspaceWindow):
         self._roi_task = None
         pending = self._roi_pending_payload
         self._roi_pending_payload = None
-        if pending is not None:
+        if pending is not None and not self._shutdown_requested:
             self._start_roi_worker(pending)
             return True
         return False
@@ -262,6 +394,13 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def _on_roi_worker_finished(self, payload: RoiConversionWorkerResult) -> None:
         is_active = payload.request_id == self._roi_active_request_id
+        if not is_active:
+            return
+        if self._shutdown_requested:
+            self._release_roi_worker_and_start_pending()
+            LOGGER.info("ROI conversion worker completed during shutdown")
+            self._maybe_finish_shutdown()
+            return
         is_latest = payload.request_id == self._roi_generation
         pending_exists = self._roi_pending_payload is not None
 
@@ -272,6 +411,13 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def _on_roi_worker_failed(self, request_id: int, message: str) -> None:
         is_active = request_id == self._roi_active_request_id
+        if not is_active:
+            return
+        if self._shutdown_requested:
+            self._release_roi_worker_and_start_pending()
+            LOGGER.warning("ROI conversion worker failed during shutdown: %s", message)
+            self._maybe_finish_shutdown()
+            return
         is_latest = request_id == self._roi_generation
         pending_exists = self._roi_pending_payload is not None
 
@@ -287,7 +433,7 @@ class MainWindow(ResearchWorkspaceWindow):
     # Non-blocking full conversion
     # ------------------------------------------------------------------
     def run_full_conversion(self) -> None:
-        if self._conversion_task is not None:
+        if self._shutdown_requested or self._conversion_task is not None:
             return
         try:
             cfg = self.collect_config()
@@ -308,10 +454,15 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def _release_full_conversion_task(self) -> None:
         self._conversion_task = None
-        self.convert_button.setEnabled(True)
+        if not self._shutdown_requested:
+            self.convert_button.setEnabled(True)
 
     def _on_full_conversion_finished(self, payload: FullConversionWorkerResult) -> None:
         self._release_full_conversion_task()
+        if self._shutdown_requested:
+            LOGGER.info("full conversion save completed during shutdown")
+            self._maybe_finish_shutdown()
+            return
         self.config = payload.config
         conversion = payload.conversion
         extras: list[str] = []
@@ -336,6 +487,10 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def _on_full_conversion_failed(self, message: str) -> None:
         self._release_full_conversion_task()
+        if self._shutdown_requested:
+            LOGGER.error("full conversion failed during shutdown: %s", message)
+            self._maybe_finish_shutdown()
+            return
         self.status_label.setText(f"完整转换失败：{message}")
         LOGGER.error("full conversion worker failed: %s", message)
         QMessageBox.critical(self, "转换失败", message)
@@ -366,7 +521,7 @@ class MainWindow(ResearchWorkspaceWindow):
         layout.insertLayout(2, row)
 
     def run_batch_conversion(self) -> None:
-        if self._batch_task is not None:
+        if self._shutdown_requested or self._batch_task is not None:
             return
         try:
             cfg = self.collect_config()
@@ -404,6 +559,8 @@ class MainWindow(ResearchWorkspaceWindow):
         self.batch_progress.setFormat("停止已请求：等待当前任务完成…")
 
     def _on_batch_started(self, total: int) -> None:
+        if self._shutdown_requested:
+            return
         total = max(0, int(total))
         self.batch_table.clearContents()
         self.batch_table.setRowCount(total)
@@ -432,6 +589,8 @@ class MainWindow(ResearchWorkspaceWindow):
         total: int,
         item: BatchItemResult,
     ) -> None:
+        if self._shutdown_requested:
+            return
         row = max(0, int(current) - 1)
         if row >= self.batch_table.rowCount():
             self.batch_table.setRowCount(row + 1)
@@ -450,12 +609,17 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def _release_batch_task(self) -> None:
         self._batch_task = None
-        self.run_batch_button.setEnabled(True)
-        self.scan_batch_button.setEnabled(True)
-        self.cancel_batch_button.setEnabled(False)
+        if not self._shutdown_requested:
+            self.run_batch_button.setEnabled(True)
+            self.scan_batch_button.setEnabled(True)
+            self.cancel_batch_button.setEnabled(False)
 
     def _on_batch_finished(self, result: BatchRunResult) -> None:
         self._release_batch_task()
+        if self._shutdown_requested:
+            LOGGER.info("batch worker completed during shutdown")
+            self._maybe_finish_shutdown()
+            return
         self.batch_table.resizeColumnsToContents()
         if result.jobs_found:
             self.batch_progress.setRange(0, result.jobs_found)
@@ -492,6 +656,10 @@ class MainWindow(ResearchWorkspaceWindow):
 
     def _on_batch_failed(self, message: str) -> None:
         self._release_batch_task()
+        if self._shutdown_requested:
+            LOGGER.error("batch worker failed during shutdown: %s", message)
+            self._maybe_finish_shutdown()
+            return
         self.batch_progress.setRange(0, 1)
         self.batch_progress.setValue(0)
         self.batch_progress.setFormat("批量转换失败")
@@ -557,6 +725,8 @@ class MainWindow(ResearchWorkspaceWindow):
         )
 
     def _accept_generated_dcm_waveform(self, waveform: DcmSwWaveform) -> None:
+        if self._shutdown_requested:
+            return
         # An in-flight ROI conversion belongs to the previous research waveform.
         self._roi_generation += 1
         self._roi_pending_payload = None

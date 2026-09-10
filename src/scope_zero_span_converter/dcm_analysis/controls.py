@@ -376,7 +376,7 @@ class DcmAnalysisControls(QWidget):
             self._syncing = False
 
     def _on_parameter_changed(self, key: str, display_value) -> None:
-        if self._syncing:
+        if self._syncing or getattr(self, "_shutting_down", False):
             return
         value = int(display_value) if key == "random_seed" else self._from_display(key, float(display_value))
         self.parameters = replace(self.parameters, **{key: value})
@@ -386,7 +386,7 @@ class DcmAnalysisControls(QWidget):
         self._update_timer.start()
 
     def _on_profile_changed(self, *_args) -> None:
-        if self._syncing:
+        if self._syncing or getattr(self, "_shutting_down", False):
             return
         self.profile = ZeroSpanProfile(
             center_frequency_hz=self.center_mhz.value() * 1e6,

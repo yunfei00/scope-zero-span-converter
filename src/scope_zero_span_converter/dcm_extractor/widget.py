@@ -113,6 +113,8 @@ class DcmParameterExtractorWidget(QWidget):
         self._global_refinement_active_source_signature: str | None = None
         self._global_refinement_active_inputs: tuple[object, object, object] | None = None
         self._global_refinement_cancel_requested_id: int | None = None
+        self._global_refinement_tasks: dict[int, GlobalRefinementWorkerTask] = {}
+        self._shutting_down = False
 
         self._build_ui()
         app = QApplication.instance()
@@ -497,13 +499,19 @@ class DcmParameterExtractorWidget(QWidget):
         self.result_table.setItem(row, 2, QTableWidgetItem(note))
 
     def _on_parameter_changed(self, key: str, display_value: float) -> None:
-        if self._editor_syncing or self.current_parameters is None:
+        if (
+            self._shutting_down
+            or self._editor_syncing
+            or self.current_parameters is None
+        ):
             return
         internal_value = self._from_display(key, float(display_value))
         self.current_parameters = replace(self.current_parameters, **{key: internal_value})
         self._parameter_timer.start()
 
     def _run_current_model(self) -> None:
+        if self._shutting_down:
+            return
         if (
             self.time_s is None
             or self.voltage_v is None
@@ -725,6 +733,18 @@ class DcmParameterExtractorWidget(QWidget):
         )
 
     def _sync_action_state(self) -> None:
+        if self._shutting_down:
+            for button in (
+                self.load_button,
+                self.rerun_button,
+                self.global_refine_btn,
+                self.cancel_global_refine_btn,
+                self.restore_all_btn,
+                self.use_global_all_btn,
+                self.save_reconstruction_csv_btn,
+            ):
+                button.setEnabled(False)
+            return
         busy = self._global_refinement_active_request_id is not None
         cancelling = (
             busy
@@ -773,6 +793,8 @@ class DcmParameterExtractorWidget(QWidget):
             self._sync_action_state()
 
     def run_global_refinement(self) -> None:
+        if self._shutting_down:
+            return
         if self._global_refinement_active_request_id is not None:
             return
         if not self._ready_for_global_refinement():
@@ -807,6 +829,7 @@ class DcmParameterExtractorWidget(QWidget):
         task.signals.cancelled.connect(self._on_global_refinement_cancelled)
         self._global_refinement_active_request_id = request_id
         self._global_refinement_task = task
+        self._global_refinement_tasks[request_id] = task
         self._global_refinement_cancel_requested_id = None
         self._global_refinement_active_source_signature = waveform_signature(
             self.time_s, self.voltage_v
@@ -846,7 +869,8 @@ class DcmParameterExtractorWidget(QWidget):
         self._global_refinement_active_source_signature = None
         self._global_refinement_active_inputs = None
         self._global_refinement_cancel_requested_id = None
-        self._sync_action_state()
+        if not self._shutting_down:
+            self._sync_action_state()
 
     def _global_refinement_source_is_current(self) -> bool:
         if self.time_s is None or self.voltage_v is None:
@@ -865,7 +889,12 @@ class DcmParameterExtractorWidget(QWidget):
     def _on_global_refinement_finished(
         self, request_id: int, result: DcmGlobalRefinementResult
     ) -> None:
+        self._global_refinement_tasks.pop(request_id, None)
         if request_id != self._global_refinement_active_request_id:
+            return
+        if self._shutting_down:
+            self._release_global_refinement_task()
+            LOGGER.info("DCM global refinement completed during shutdown")
             return
         if self._global_refinement_cancel_requested_id == request_id:
             self._on_global_refinement_cancelled(request_id)
@@ -904,7 +933,14 @@ class DcmParameterExtractorWidget(QWidget):
         )
 
     def _on_global_refinement_failed(self, request_id: int, message: str) -> None:
+        self._global_refinement_tasks.pop(request_id, None)
         if request_id != self._global_refinement_active_request_id:
+            return
+        if self._shutting_down:
+            self._release_global_refinement_task()
+            LOGGER.warning(
+                "DCM global refinement failed during shutdown: %s", message
+            )
             return
         if self._global_refinement_cancel_requested_id == request_id:
             self._on_global_refinement_cancelled(request_id)
@@ -929,7 +965,12 @@ class DcmParameterExtractorWidget(QWidget):
         )
 
     def _on_global_refinement_cancelled(self, request_id: int) -> None:
+        self._global_refinement_tasks.pop(request_id, None)
         if request_id != self._global_refinement_active_request_id:
+            return
+        if self._shutting_down:
+            self._release_global_refinement_task()
+            LOGGER.info("DCM global refinement cancelled during shutdown")
             return
         if not self._global_refinement_source_is_current():
             self._release_global_refinement_task()
@@ -943,20 +984,33 @@ class DcmParameterExtractorWidget(QWidget):
         )
         LOGGER.info("DCM global refinement cancelled source=%s", self.waveform_path or "memory")
 
-    def _cancel_global_refinement_for_shutdown(self) -> None:
-        """Cancel without touching widgets while the Qt object tree is closing."""
+    def has_active_background_tasks(self) -> bool:
+        """Return whether any tracked global-refinement task is non-terminal."""
 
-        task = self._global_refinement_task
-        if task is not None:
+        return bool(self._global_refinement_tasks)
+
+    def begin_shutdown(self) -> None:
+        """Stop deferred fits and cooperatively cancel all tracked refinements."""
+
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._parameter_timer.stop()
+        for task in tuple(self._global_refinement_tasks.values()):
             task.cancel()
-        self._global_refinement_active_request_id = None
-        self._global_refinement_task = None
-        self._global_refinement_active_source_signature = None
-        self._global_refinement_active_inputs = None
-        self._global_refinement_cancel_requested_id = None
+        if self._global_refinement_active_request_id is not None:
+            self._global_refinement_cancel_requested_id = (
+                self._global_refinement_active_request_id
+            )
+        self._sync_action_state()
+
+    def _cancel_global_refinement_for_shutdown(self) -> None:
+        """Backward-compatible Qt shutdown hook."""
+
+        self.begin_shutdown()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
-        self._cancel_global_refinement_for_shutdown()
+        self.begin_shutdown()
         super().closeEvent(event)
 
     def save_result(self, path: str | Path) -> Path:

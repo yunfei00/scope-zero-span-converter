@@ -103,6 +103,11 @@ class ResearchWorkspaceWindow(QMainWindow):
         self._conversion_timer.setInterval(250)
         self._conversion_timer.timeout.connect(self.update_region_conversion)
 
+        self._roi_controls_timer = QTimer(self)
+        self._roi_controls_timer.setSingleShot(True)
+        self._roi_controls_timer.setInterval(180)
+        self._roi_controls_timer.timeout.connect(self.apply_roi_from_controls_silent)
+
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
@@ -558,11 +563,17 @@ class ResearchWorkspaceWindow(QMainWindow):
             self.status_label.setText(f"研究区域无效：{exc}")
 
     def _schedule_roi_from_controls(self) -> None:
-        if self._updating_roi_controls or self.waveform_time is None:
+        if (
+            self._updating_roi_controls
+            or self.waveform_time is None
+            or getattr(self, "_shutdown_requested", False)
+        ):
             return
-        QTimer.singleShot(180, self.apply_roi_from_controls_silent)
+        self._roi_controls_timer.start()
 
     def apply_roi_from_controls_silent(self) -> None:
+        if getattr(self, "_shutdown_requested", False):
+            return
         try:
             self.apply_roi_from_controls(show_error=False)
         except Exception:
@@ -570,6 +581,8 @@ class ResearchWorkspaceWindow(QMainWindow):
 
     def apply_roi_from_controls(self, checked: bool = False, *, show_error: bool = True) -> None:
         del checked
+        if getattr(self, "_shutdown_requested", False):
+            return
         if self.waveform_time is None:
             if show_error:
                 QMessageBox.information(self, "研究区域", "请先加载 waveform.csv")

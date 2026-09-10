@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from ..dcm_sw_generator import DcmSwWaveform, load_dcm_sw_parameters, save_dcm_sw_parameters
 from ..dcm_zero_span_link import load_zero_span_profile, save_zero_span_profile
+from ..logging_utils import get_logger
 from ..waveform_quality import waveform_signature
 from ..workspace import collect_dcm_analysis_workspace
 from .exporter import export_dcm_analysis_bundle
@@ -26,6 +27,9 @@ from .spectrum import DcmSpectrum, compute_dcm_spectrum
 from .worker import SpectrumWorkerOptions, SpectrumWorkerTask
 from .view import DcmAnalysisView
 from .zoom_interaction import ZoomInteractionMixin
+
+
+LOGGER = get_logger()
 
 
 class DcmAnalysisWidget(
@@ -69,6 +73,7 @@ class DcmAnalysisWidget(
         self._spectrum_pending_generation: int | None = None
         self._frequency_auto_axis_pending = True
         self._spectrum_thread_pool = QThreadPool.globalInstance()
+        self._shutting_down = False
 
         super().__init__(parent)
 
@@ -302,6 +307,10 @@ class DcmAnalysisWidget(
         waveform: DcmSwWaveform,
         generation: int | None = None,
     ) -> None:
+        if self._shutting_down:
+            self._spectrum_pending_waveform = None
+            self._spectrum_pending_generation = None
+            return
         request_generation = (
             self._waveform_generation if generation is None else int(generation)
         )
@@ -350,7 +359,8 @@ class DcmAnalysisWidget(
         self._spectrum_pending_waveform = None
         self._spectrum_pending_generation = None
         if (
-            pending is not None
+            not self._shutting_down
+            and pending is not None
             and pending is self.current_waveform
             and pending_generation == self.analysis_generation
         ):
@@ -369,6 +379,10 @@ class DcmAnalysisWidget(
             and waveform_id == self._spectrum_active_waveform_id
         )
         if not is_active:
+            return
+        if self._shutting_down:
+            self._release_spectrum_worker_and_start_pending()
+            LOGGER.info("DCM spectrum worker completed during shutdown")
             return
         self._ensure_analysis_generation()
         current = self.current_waveform
@@ -410,6 +424,12 @@ class DcmAnalysisWidget(
         )
         if not is_active:
             return
+        if self._shutting_down:
+            self._release_spectrum_worker_and_start_pending()
+            LOGGER.warning(
+                "DCM spectrum worker failed during shutdown: %s", message
+            )
+            return
         self._ensure_analysis_generation()
         current = self.current_waveform
         timer = getattr(self, "_update_timer", None)
@@ -443,6 +463,25 @@ class DcmAnalysisWidget(
         self._clear_current_spectrum()
         self._start_spectrum_worker(waveform)
         return None
+
+    def has_active_background_tasks(self) -> bool:
+        """Return whether an FFT or linked recompute task is still running."""
+
+        return bool(
+            self._spectrum_active_task is not None
+            or self._recompute_active_task is not None
+        )
+
+    def begin_shutdown(self) -> None:
+        """Discard deferred work while allowing active NumPy tasks to finish."""
+
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._update_timer.stop()
+        self._spectrum_pending_waveform = None
+        self._spectrum_pending_generation = None
+        self._recompute_pending = None
 
     def _draw_frequency_panel(self, ax, waveform: DcmSwWaveform) -> None:
         spectrum = self._get_or_schedule_spectrum(waveform)
