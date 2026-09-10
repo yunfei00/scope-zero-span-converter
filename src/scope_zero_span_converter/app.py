@@ -71,5 +71,5 @@ def main() -> int:
             LOGGER.exception("保存最近使用状态失败")
 
     app.aboutToQuit.connect(persist_state)
-    window.show()
+    window.showMaximized()
     return app.exec()
