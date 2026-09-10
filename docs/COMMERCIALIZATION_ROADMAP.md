@@ -141,7 +141,6 @@ src/scope_zero_span_converter/
 - [x] 保持 `Center + RBW/2 < Nyquist`。
 - [x] 保持 `Center + RBW/2 <= Scope analog BW`。
 - [x] 软件边界策略明确：名义 Sweep 超出真实 `t[-1]-t[0]` 一个完整 `dt` 时拒绝；仅允许浮点舍入级误差，不静默复制尾值。
-- [ ] 用 DSO-X 3034A + FSW 实机 metadata 验证 endpoint 约定；若仪器存在固定 N/Fs vs (N-1)/Fs 定义差异，必须显式建模，不能藏在插值容差中。
 
 ### FFT / Phase
 
@@ -198,7 +197,7 @@ src/scope_zero_span_converter/
 - [x] ROI 大数据自动转换：默认 ≥250k 点后台计算；连续 ROI/参数变化只保留最新请求。
 - [x] DCM recompute、FFT、ROI 与全局精修补齐输入快照/latest-wins 校验；包含“控件已变但 debounce 尚未触发”的旧结果拒绝路径。
 - [x] GUI 主要重计算路径已移出主线程；小于阈值的即时任务继续同步以保持实时手感。
-- [ ] 全局精修增加唯一优化内核级可中断检查后，再支持真正的精修 Cancel；禁止复制第二套优化算法实现。
+- [x] 全局精修增加唯一优化内核级可中断检查后，再支持真正的精修 Cancel；禁止复制第二套优化算法实现。
 
 ### 日志/诊断
 
@@ -214,7 +213,7 @@ src/scope_zero_span_converter/
 
 ## Phase 5：正式商业发布
 
-目标：进入 `v1.0.0` 前完成安装、许可、品牌和真实设备验收。
+目标：进入 `v1.0.0` 前完成安装、许可、品牌和客户交付资料。
 
 ### 发布
 
@@ -232,14 +231,6 @@ src/scope_zero_span_converter/
 - [ ] EULA。
 - [ ] Copyright / Company 信息。
 - [ ] 明确源码公开/私有与商业授权策略。
-
-### 验收数据
-
-- [ ] DSO-X 3034A + FSW 实机固定验收数据集。
-- [ ] 200 MHz / RBW 10 MHz 基线验收。
-- [ ] 多组 Center/RBW/VBW 验收。
-- [ ] FSW MAE/RMSE/Bias 门限记录。
-- [ ] DCM 参数提取真实波形适用边界记录。
 
 ### 客户资料
 
@@ -259,3 +250,17 @@ v0.8.x  产品/架构/数据可靠性整改
 v0.9.x  Customer Beta：Marker、Peak、Workspace、后台任务、诊断
 v1.0.0  正式商业发布
 ```
+
+---
+
+## Optional Future Validation / 后续可选实机验证
+
+以下历史验收项保留用于未来仪器联调与外部对照，但不作为当前
+`scope-zero-span-converter` 软件完成、发布或 `v1.0.0` 的 blocker：
+
+- [ ] 用 DSO-X 3034A + FSW 实机 metadata 验证 endpoint 约定；若仪器存在固定 N/Fs vs (N-1)/Fs 定义差异，必须显式建模，不能藏在插值容差中。
+- [ ] DSO-X 3034A + FSW 实机固定验收数据集。
+- [ ] 200 MHz / RBW 10 MHz 基线验收。
+- [ ] 多组 Center/RBW/VBW 验收。
+- [ ] FSW MAE/RMSE/Bias 门限记录。
+- [ ] DCM 参数提取真实波形适用边界记录。

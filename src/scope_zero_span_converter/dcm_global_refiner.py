@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -21,6 +21,15 @@ _NONLINEAR_NAMES = (
     "dcm_frequency_hz",
     "dcm_decay_rate_per_s",
 )
+
+
+class GlobalRefinementCancelled(Exception):
+    """Raised when a caller cooperatively cancels global DCM refinement."""
+
+
+def _raise_if_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is not None and cancel_check():
+        raise GlobalRefinementCancelled("DCM 全局联合精修已取消")
 
 
 @dataclass(frozen=True)
@@ -143,6 +152,7 @@ def refine_dcm_parameters_globally(
     *,
     max_iterations: int = 10,
     max_optimization_points: int = 18_000,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> DcmGlobalRefinementResult:
     """以分阶段参数为初值，联合精修完整 DCM 模型。
 
@@ -153,6 +163,8 @@ def refine_dcm_parameters_globally(
     - 每个非线性候选点上，电平和三个阻尼振铃的 cos/sin 系数用加权
       线性最小二乘直接求最优值；
     - 优化抽样保留边沿和 DCM 瞬态高密度点，最终重建仍返回完整时间轴。
+    - ``cancel_check`` 可由后台 Worker 提供线程安全的轻量检查；取消在
+      向量化计算边界协作完成，不会强制终止线程或改变搜索策略。
     """
 
     t = np.asarray(time_s, dtype=float)
@@ -174,6 +186,7 @@ def refine_dcm_parameters_globally(
     duration = float(t[-1] - t[0])
     if duration <= 0:
         raise ValueError("波形总时长必须 > 0")
+    _raise_if_cancelled(cancel_check)
 
     staged_reconstruction = (
         np.asarray(basic.fitted_ideal_voltage_v, dtype=float)
@@ -213,11 +226,13 @@ def refine_dcm_parameters_globally(
         10.0 * max(float(basic.estimated_noise_rms_v), 1e-9),
         1e-9,
     )
+    _raise_if_cancelled(cancel_check)
 
     evaluations = 0
 
     def evaluate(candidate: np.ndarray) -> tuple[float, np.ndarray]:
         nonlocal evaluations
+        _raise_if_cancelled(cancel_check)
         evaluations += 1
         if not _valid_timing(candidate, t[0], t[-1], dt):
             return float("inf"), np.zeros(9, dtype=float)
@@ -227,6 +242,7 @@ def refine_dcm_parameters_globally(
         weighted_matrix = matrix * sqrt_w[:, None]
         weighted_y = fit_y * sqrt_w
         coeff, *_ = np.linalg.lstsq(weighted_matrix, weighted_y, rcond=None)
+        _raise_if_cancelled(cancel_check)
         prediction = matrix @ coeff
         error = fit_y - prediction
         score = _composite_objective(
@@ -253,9 +269,11 @@ def refine_dcm_parameters_globally(
     converged = False
     iterations_done = 0
     for iteration in range(max(1, int(max_iterations))):
+        _raise_if_cancelled(cancel_check)
         iterations_done = iteration + 1
         improved_any = False
         for dimension in range(len(best_x)):
+            _raise_if_cancelled(cancel_check)
             if spans[dimension] <= 0 or steps[dimension] <= 0:
                 continue
             local_best_score = best_score
@@ -294,20 +312,27 @@ def refine_dcm_parameters_globally(
             break
 
     # 在优化后的非线性参数上，用更完整的数据集重新求一次线性系数。
+    _raise_if_cancelled(cancel_check)
     final_indices = _final_linear_fit_indices(t, best_x, max_points=120_000)
     final_t = t[final_indices]
     final_y = y[final_indices]
     final_matrix = _design_matrix(final_t, best_x)
     final_weights = _fit_weights(final_t, best_x, dt)
     sqrt_w = np.sqrt(final_weights)
+    _raise_if_cancelled(cancel_check)
     best_coeff, *_ = np.linalg.lstsq(
         final_matrix * sqrt_w[:, None],
         final_y * sqrt_w,
         rcond=None,
     )
+    _raise_if_cancelled(cancel_check)
 
+    # Full-resolution reconstruction is intentionally one vectorized operation;
+    # cancellation is checked at its boundary rather than per sample.
+    _raise_if_cancelled(cancel_check)
     full_matrix = _design_matrix(t, best_x)
     optimized_reconstruction = full_matrix @ best_coeff
+    _raise_if_cancelled(cancel_check)
     final_residual = y - optimized_reconstruction
     optimized_rmse = float(np.sqrt(np.mean(final_residual**2)))
     final_noise = _robust_sigma(final_residual)

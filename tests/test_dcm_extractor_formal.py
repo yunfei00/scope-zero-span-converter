@@ -97,6 +97,7 @@ def test_formal_extractor_owns_explicit_controls_and_state(qapp):
         "load_button",
         "rerun_button",
         "global_refine_btn",
+        "cancel_global_refine_btn",
         "restore_all_btn",
         "use_global_all_btn",
         "save_reconstruction_csv_btn",
@@ -226,6 +227,147 @@ def test_current_global_refinement_result_maps_back_to_generator_parameters(qapp
     )
     assert widget._global_refinement_active_request_id is None
     assert widget.use_global_all_btn.isEnabled()
+    accepted_result = widget.global_result
+    widget.cancel_global_refinement()
+    assert widget.global_result is accepted_result
+
+
+def test_cancel_preserves_staged_and_current_results_then_allows_restart(qapp):
+    widget = _formal_widget(qapp)
+    pool = _CapturingPool()
+    widget._global_refinement_pool = pool
+    staged = (widget.result, widget.ringing_result, widget.dcm_result)
+    current_parameters = widget.current_parameters
+    current_fit = widget.current_fit_result
+
+    widget.run_global_refinement()
+    first_task = pool.tasks[0]
+    first_request_id = widget._global_refinement_active_request_id
+    assert first_request_id is not None
+    assert widget.global_refine_btn.isEnabled() is False
+    assert widget.cancel_global_refine_btn.isEnabled() is True
+
+    widget.cancel_global_refinement()
+    assert first_task.cancel_requested is True
+    assert "正在取消" in widget.status_label.text()
+    assert widget.cancel_global_refine_btn.isEnabled() is False
+    assert widget.load_button.isEnabled() is True
+    assert widget.rerun_button.isEnabled() is True
+    widget._on_global_refinement_cancelled(first_request_id)
+
+    assert (widget.result, widget.ringing_result, widget.dcm_result) == staged
+    assert widget.current_parameters is current_parameters
+    assert widget.current_fit_result is current_fit
+    assert widget.global_result is None
+    assert widget.global_error is None
+    assert "已取消" in widget.status_label.text()
+    assert widget.global_refine_btn.isEnabled() is True
+    assert widget.cancel_global_refine_btn.isEnabled() is False
+
+    widget.run_global_refinement()
+    second_task = pool.tasks[1]
+    second_request_id = widget._global_refinement_active_request_id
+    assert second_request_id is not None
+    assert second_request_id != first_request_id
+
+    # Late terminal signals from the cancelled request must not release or
+    # overwrite the second request.
+    widget._on_global_refinement_cancelled(first_request_id)
+    widget._on_global_refinement_finished(first_request_id, object())
+    assert widget._global_refinement_active_request_id == second_request_id
+    assert widget.current_parameters is current_parameters
+
+    second_task.max_iterations = 1
+    second_task.max_optimization_points = 1_500
+    second_task.run()
+    assert widget.global_result is not None
+    assert widget.current_parameters is not current_parameters
+    assert widget._global_refinement_active_request_id is None
+
+
+def test_cancel_request_wins_over_uncommitted_finished_signal(qapp):
+    widget = _formal_widget(qapp)
+    pool = _CapturingPool()
+    widget._global_refinement_pool = pool
+    current_parameters = widget.current_parameters
+    current_fit = widget.current_fit_result
+
+    widget.run_global_refinement()
+    request_id = widget._global_refinement_active_request_id
+    assert request_id is not None
+    widget.cancel_global_refinement()
+    widget._on_global_refinement_finished(request_id, object())
+
+    assert widget.global_result is None
+    assert widget.current_parameters is current_parameters
+    assert widget.current_fit_result is current_fit
+    assert widget._global_refinement_active_request_id is None
+    assert "已取消" in widget.status_label.text()
+    widget._on_global_refinement_cancelled(request_id)
+    assert "已取消" in widget.status_label.text()
+
+
+def test_cancelled_stale_request_cannot_affect_new_waveform(qapp):
+    widget = _formal_widget(qapp)
+    pool = _CapturingPool()
+    widget._global_refinement_pool = pool
+    widget.run_global_refinement()
+    old_task = pool.tasks[0]
+    old_request_id = widget._global_refinement_active_request_id
+    assert old_request_id is not None
+    widget.cancel_global_refinement()
+
+    parameters = DcmSwParameters(
+        time_origin_s=5e-6,
+        total_duration_s=8e-6,
+        switching_start_s=5.8e-6,
+        rise_time_s=50e-9,
+        on_time_s=1.2e-6,
+        fall_time_s=60e-9,
+        freewheel_time_s=1.0e-6,
+        spike_ringing_frequency_hz=25e6,
+        discontinuous_resonance_frequency_hz=4e6,
+        sample_rate_hz=250e6,
+        noise_rms_v=0.01,
+        random_seed=78,
+    )
+    replacement = generate_dcm_sw_waveform(parameters)
+    widget.set_waveform(
+        replacement.time_s,
+        replacement.voltage_v,
+        source_name="replacement",
+    )
+    new_state = (
+        widget.result,
+        widget.ringing_result,
+        widget.dcm_result,
+        widget.current_parameters,
+        widget.current_fit_result,
+    )
+
+    assert old_task.cancel_requested is True
+    widget._on_global_refinement_cancelled(old_request_id)
+    widget._on_global_refinement_finished(old_request_id, object())
+    assert (
+        widget.result,
+        widget.ringing_result,
+        widget.dcm_result,
+        widget.current_parameters,
+        widget.current_fit_result,
+    ) == new_state
+
+
+def test_close_requests_global_refinement_cancellation(qapp):
+    widget = _formal_widget(qapp)
+    pool = _CapturingPool()
+    widget._global_refinement_pool = pool
+    widget.run_global_refinement()
+    task = pool.tasks[0]
+
+    widget.close()
+
+    assert task.cancel_requested is True
+    assert widget._global_refinement_active_request_id is None
 
 
 def test_formal_json_export_keeps_stable_semantics(qapp, tmp_path):

@@ -6,7 +6,10 @@ import pytest
 from scope_zero_span_converter.dcm_discontinuous_extractor import (
     extract_dcm_discontinuous_resonance,
 )
-from scope_zero_span_converter.dcm_global_refiner import refine_dcm_parameters_globally
+from scope_zero_span_converter.dcm_global_refiner import (
+    GlobalRefinementCancelled,
+    refine_dcm_parameters_globally,
+)
 from scope_zero_span_converter.dcm_parameter_extractor import extract_dcm_basic_parameters
 from scope_zero_span_converter.dcm_ringing_extractor import extract_dcm_edge_ringing
 from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters, generate_dcm_sw_waveform
@@ -32,6 +35,97 @@ def _run_full_identification(parameters: DcmSwParameters):
         max_optimization_points=12_000,
     )
     return waveform, basic, ringing, dcm, refined
+
+
+def _cancellable_inputs():
+    waveform = generate_dcm_sw_waveform(
+        DcmSwParameters(
+            total_duration_s=8e-6,
+            switching_start_s=0.8e-6,
+            rise_time_s=50e-9,
+            on_time_s=1.2e-6,
+            fall_time_s=60e-9,
+            freewheel_time_s=1.0e-6,
+            spike_ringing_frequency_hz=25e6,
+            discontinuous_resonance_frequency_hz=4e6,
+            sample_rate_hz=250e6,
+            noise_rms_v=0.01,
+            random_seed=77,
+        )
+    )
+    basic = extract_dcm_basic_parameters(waveform.time_s, waveform.voltage_v)
+    ringing = extract_dcm_edge_ringing(waveform.time_s, waveform.voltage_v, basic)
+    dcm = extract_dcm_discontinuous_resonance(
+        waveform.time_s, waveform.voltage_v, basic, ringing
+    )
+    return waveform, basic, ringing, dcm
+
+
+def test_optional_cancel_check_preserves_default_refinement_behavior():
+    waveform, basic, ringing, dcm = _cancellable_inputs()
+    arguments = (
+        waveform.time_s,
+        waveform.voltage_v,
+        basic,
+        ringing,
+        dcm,
+    )
+    default = refine_dcm_parameters_globally(
+        *arguments,
+        max_iterations=1,
+        max_optimization_points=1_500,
+    )
+    explicitly_active = refine_dcm_parameters_globally(
+        *arguments,
+        max_iterations=1,
+        max_optimization_points=1_500,
+        cancel_check=lambda: False,
+    )
+
+    assert explicitly_active.optimized_rmse_v == pytest.approx(default.optimized_rmse_v)
+    assert explicitly_active.evaluations == default.evaluations
+    np.testing.assert_array_equal(
+        explicitly_active.optimized_reconstruction_v,
+        default.optimized_reconstruction_v,
+    )
+
+
+def test_global_refinement_raises_formal_cancel_exception():
+    waveform, basic, ringing, dcm = _cancellable_inputs()
+    assert not issubclass(GlobalRefinementCancelled, RuntimeError)
+    with pytest.raises(GlobalRefinementCancelled):
+        refine_dcm_parameters_globally(
+            waveform.time_s,
+            waveform.voltage_v,
+            basic,
+            ringing,
+            dcm,
+            cancel_check=lambda: True,
+        )
+
+
+def test_global_refinement_checks_cancel_during_optimization_loop():
+    waveform, basic, ringing, dcm = _cancellable_inputs()
+    checks = 0
+
+    def cancel_after_work_started() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks >= 8
+
+    with pytest.raises(GlobalRefinementCancelled):
+        refine_dcm_parameters_globally(
+            waveform.time_s,
+            waveform.voltage_v,
+            basic,
+            ringing,
+            dcm,
+            max_iterations=4,
+            max_optimization_points=1_500,
+            cancel_check=cancel_after_work_started,
+        )
+
+    assert checks >= 8
 
 
 def test_global_refinement_reconstructs_default_like_waveform():

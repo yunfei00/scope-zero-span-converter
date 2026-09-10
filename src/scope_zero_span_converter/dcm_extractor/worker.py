@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from threading import Event
+
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from ..dcm_discontinuous_extractor import DcmDiscontinuousExtractionResult
-from ..dcm_global_refiner import DcmGlobalRefinementResult, refine_dcm_parameters_globally
+from ..dcm_global_refiner import (
+    DcmGlobalRefinementResult,
+    GlobalRefinementCancelled,
+    refine_dcm_parameters_globally,
+)
 from ..dcm_parameter_extractor import DcmBasicExtractionResult
 from ..dcm_ringing_extractor import DcmRingingExtractionResult
 
@@ -12,6 +18,7 @@ from ..dcm_ringing_extractor import DcmRingingExtractionResult
 class GlobalRefinementWorkerSignals(QObject):
     finished = Signal(int, object)
     failed = Signal(int, str)
+    cancelled = Signal(int)
 
 
 class GlobalRefinementWorkerTask(QRunnable):
@@ -40,8 +47,18 @@ class GlobalRefinementWorkerTask(QRunnable):
         self.dcm = dcm
         self.max_iterations = int(max_iterations)
         self.max_optimization_points = int(max_optimization_points)
+        self._cancel_event = Event()
         self.signals = GlobalRefinementWorkerSignals()
         self.setAutoDelete(True)
+
+    def cancel(self) -> None:
+        """Request cooperative cancellation from any thread."""
+
+        self._cancel_event.set()
+
+    @property
+    def cancel_requested(self) -> bool:
+        return self._cancel_event.is_set()
 
     def run(self) -> None:
         try:
@@ -53,7 +70,15 @@ class GlobalRefinementWorkerTask(QRunnable):
                 self.dcm,
                 max_iterations=self.max_iterations,
                 max_optimization_points=self.max_optimization_points,
+                cancel_check=self._cancel_event.is_set,
             )
+            # Resolve the narrow race between the optimizer's final check and
+            # emitting its terminal signal in favor of an observed cancel.
+            if self._cancel_event.is_set():
+                raise GlobalRefinementCancelled
+        except GlobalRefinementCancelled:
+            self.signals.cancelled.emit(self.request_id)
+            return
         except Exception as exc:
             self.signals.failed.emit(self.request_id, str(exc))
             return

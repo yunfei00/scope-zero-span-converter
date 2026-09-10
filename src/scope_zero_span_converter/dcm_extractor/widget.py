@@ -11,6 +11,7 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFileDialog,
     QGroupBox,
@@ -111,8 +112,12 @@ class DcmParameterExtractorWidget(QWidget):
         self._global_refinement_task: GlobalRefinementWorkerTask | None = None
         self._global_refinement_active_source_signature: str | None = None
         self._global_refinement_active_inputs: tuple[object, object, object] | None = None
+        self._global_refinement_cancel_requested_id: int | None = None
 
         self._build_ui()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._cancel_global_refinement_for_shutdown)
 
     def _build_ui(self) -> None:
         root = QHBoxLayout(self)
@@ -143,6 +148,11 @@ class DcmParameterExtractorWidget(QWidget):
         self.global_refine_btn.setEnabled(False)
         self.global_refine_btn.clicked.connect(self.run_global_refinement)
         self.input_layout.addWidget(self.global_refine_btn)
+
+        self.cancel_global_refine_btn = QPushButton("取消全局联合精修")
+        self.cancel_global_refine_btn.setEnabled(False)
+        self.cancel_global_refine_btn.clicked.connect(self.cancel_global_refinement)
+        self.input_layout.addWidget(self.cancel_global_refine_btn)
 
         parameter_actions = QHBoxLayout()
         self.restore_all_btn = QPushButton("恢复全部自动提取值")
@@ -716,12 +726,24 @@ class DcmParameterExtractorWidget(QWidget):
 
     def _sync_action_state(self) -> None:
         busy = self._global_refinement_active_request_id is not None
-        self.load_button.setEnabled(not busy)
-        self.rerun_button.setEnabled(not busy)
+        cancelling = (
+            busy
+            and self._global_refinement_cancel_requested_id
+            == self._global_refinement_active_request_id
+        )
+        # Once cancellation has been requested, loading/reanalysis may proceed:
+        # invalidation cancels again idempotently and request-id guards reject
+        # any late terminal signal from the old task.
+        self.load_button.setEnabled((not busy) or cancelling)
+        self.rerun_button.setEnabled((not busy) or cancelling)
         self.global_refine_btn.setText(
             "全局联合精修中…" if busy else "重新运行全局联合精修（较慢）"
         )
         self.global_refine_btn.setEnabled((not busy) and self._ready_for_global_refinement())
+        self.cancel_global_refine_btn.setText(
+            "正在取消全局联合精修…" if cancelling else "取消全局联合精修"
+        )
+        self.cancel_global_refine_btn.setEnabled(busy and not cancelling)
         self.restore_all_btn.setEnabled((not busy) and self.result is not None)
         self.use_global_all_btn.setEnabled((not busy) and self.global_result is not None)
         self.save_reconstruction_csv_btn.setEnabled(
@@ -735,13 +757,18 @@ class DcmParameterExtractorWidget(QWidget):
     def _set_global_refinement_busy(self, busy: bool) -> None:
         if not busy:
             self._global_refinement_active_request_id = None
+            self._global_refinement_cancel_requested_id = None
         self._sync_action_state()
 
     def _invalidate_global_refinement(self) -> None:
+        task = self._global_refinement_task
+        if task is not None:
+            task.cancel()
         self._global_refinement_active_request_id = None
         self._global_refinement_task = None
         self._global_refinement_active_source_signature = None
         self._global_refinement_active_inputs = None
+        self._global_refinement_cancel_requested_id = None
         if hasattr(self, "load_button"):
             self._sync_action_state()
 
@@ -777,8 +804,10 @@ class DcmParameterExtractorWidget(QWidget):
         )
         task.signals.finished.connect(self._on_global_refinement_finished)
         task.signals.failed.connect(self._on_global_refinement_failed)
+        task.signals.cancelled.connect(self._on_global_refinement_cancelled)
         self._global_refinement_active_request_id = request_id
         self._global_refinement_task = task
+        self._global_refinement_cancel_requested_id = None
         self._global_refinement_active_source_signature = waveform_signature(
             self.time_s, self.voltage_v
         )
@@ -796,11 +825,27 @@ class DcmParameterExtractorWidget(QWidget):
         )
         self._global_refinement_pool.start(task)
 
+    def cancel_global_refinement(self) -> None:
+        request_id = self._global_refinement_active_request_id
+        task = self._global_refinement_task
+        if request_id is None or task is None:
+            return
+        if self._global_refinement_cancel_requested_id == request_id:
+            return
+
+        self._global_refinement_cancel_requested_id = request_id
+        task.cancel()
+        self._sync_action_state()
+        self.status_label.setText(
+            self._status_with_quality("正在取消全局联合精修…")
+        )
+
     def _release_global_refinement_task(self) -> None:
         self._global_refinement_active_request_id = None
         self._global_refinement_task = None
         self._global_refinement_active_source_signature = None
         self._global_refinement_active_inputs = None
+        self._global_refinement_cancel_requested_id = None
         self._sync_action_state()
 
     def _global_refinement_source_is_current(self) -> bool:
@@ -821,6 +866,9 @@ class DcmParameterExtractorWidget(QWidget):
         self, request_id: int, result: DcmGlobalRefinementResult
     ) -> None:
         if request_id != self._global_refinement_active_request_id:
+            return
+        if self._global_refinement_cancel_requested_id == request_id:
+            self._on_global_refinement_cancelled(request_id)
             return
         if not self._global_refinement_source_is_current():
             self._release_global_refinement_task()
@@ -858,6 +906,9 @@ class DcmParameterExtractorWidget(QWidget):
     def _on_global_refinement_failed(self, request_id: int, message: str) -> None:
         if request_id != self._global_refinement_active_request_id:
             return
+        if self._global_refinement_cancel_requested_id == request_id:
+            self._on_global_refinement_cancelled(request_id)
+            return
         if not self._global_refinement_source_is_current():
             self._release_global_refinement_task()
             return
@@ -876,6 +927,37 @@ class DcmParameterExtractorWidget(QWidget):
             "全局联合精修未完成",
             f"前三阶段结果仍然有效。\n\n{message}",
         )
+
+    def _on_global_refinement_cancelled(self, request_id: int) -> None:
+        if request_id != self._global_refinement_active_request_id:
+            return
+        if not self._global_refinement_source_is_current():
+            self._release_global_refinement_task()
+            return
+
+        self._release_global_refinement_task()
+        self.status_label.setText(
+            self._status_with_quality(
+                "全局联合精修已取消；前三阶段结果和当前参数仍可继续使用。"
+            )
+        )
+        LOGGER.info("DCM global refinement cancelled source=%s", self.waveform_path or "memory")
+
+    def _cancel_global_refinement_for_shutdown(self) -> None:
+        """Cancel without touching widgets while the Qt object tree is closing."""
+
+        task = self._global_refinement_task
+        if task is not None:
+            task.cancel()
+        self._global_refinement_active_request_id = None
+        self._global_refinement_task = None
+        self._global_refinement_active_source_signature = None
+        self._global_refinement_active_inputs = None
+        self._global_refinement_cancel_requested_id = None
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._cancel_global_refinement_for_shutdown()
+        super().closeEvent(event)
 
     def save_result(self, path: str | Path) -> Path:
         if self.result is None:
