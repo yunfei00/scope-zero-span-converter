@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v8 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -19,19 +19,23 @@ def qapp():
     return app
 
 
-def test_frequency_has_no_auto_manual_switch_and_starts_auto(qapp):
+def test_frequency_has_no_auto_manual_switch_and_starts_with_auto_fit(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert not hasattr(widget, "freq_auto_axis")
 
     ax_freq = widget.figure.axes[1]
-    assert ax_freq.get_autoscalex_on()
-    assert ax_freq.get_autoscaley_on()
+    x_min, x_max = ax_freq.get_xlim()
+    y_min, y_max = ax_freq.get_ylim()
+    assert widget.freq_x_min.value() == pytest.approx(x_min)
+    assert widget.freq_x_max.value() == pytest.approx(x_max)
+    assert widget.freq_y_min.value() == pytest.approx(y_min)
+    assert widget.freq_y_max.value() == pytest.approx(y_max)
 
 
 def test_manual_frequency_input_changes_current_view_only(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     spins = (
         widget.freq_x_min,
@@ -65,7 +69,7 @@ def test_manual_frequency_input_changes_current_view_only(qapp):
 
 def test_next_dcm_recompute_returns_frequency_to_auto(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     for spin in (
         widget.freq_x_min,
@@ -106,5 +110,7 @@ def test_next_dcm_recompute_returns_frequency_to_auto(qapp):
     x_min, x_max = ax_freq.get_xlim()
     assert x_min <= 1e-9
     assert 499.0 <= x_max <= 501.0
-    assert ax_freq.get_autoscalex_on()
-    assert ax_freq.get_autoscaley_on()
+    assert widget.freq_x_min.value() == pytest.approx(x_min)
+    assert widget.freq_x_max.value() == pytest.approx(x_max)
+    assert widget.freq_y_min.value() == pytest.approx(ax_freq.get_ylim()[0])
+    assert widget.freq_y_max.value() == pytest.approx(ax_freq.get_ylim()[1])

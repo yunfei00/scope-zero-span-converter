@@ -15,15 +15,6 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
 
 from scope_zero_span_converter.dcm_generator.widget import DcmSwGeneratorWidget
 import scope_zero_span_converter.dcm_generator.widget as generator_widget_module
-from scope_zero_span_converter.dcm_sw_generator_widget import (
-    DcmSwGeneratorWidget as OriginalGeneratorWidget,
-)
-from scope_zero_span_converter.dcm_sw_generator_widget_v2 import (
-    DcmSwGeneratorWidget as V2GeneratorWidget,
-)
-from scope_zero_span_converter.dcm_sw_generator_widget_v3 import (
-    DcmSwGeneratorWidget as V3GeneratorWidget,
-)
 from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters
 from scope_zero_span_converter.dcm_sw_waveform_io import parameter_sidecar_for
 
@@ -56,9 +47,6 @@ def _fire_debounced_generation(widget: DcmSwGeneratorWidget) -> None:
 
 def test_formal_generator_is_direct_qwidget_without_versioned_imports(qapp):
     del qapp
-    assert OriginalGeneratorWidget is DcmSwGeneratorWidget
-    assert V2GeneratorWidget is DcmSwGeneratorWidget
-    assert V3GeneratorWidget is DcmSwGeneratorWidget
     assert QWidget in DcmSwGeneratorWidget.mro()
     modules = {base.__module__ for base in DcmSwGeneratorWidget.mro()}
     assert "scope_zero_span_converter.dcm_sw_generator_widget_v2" not in modules

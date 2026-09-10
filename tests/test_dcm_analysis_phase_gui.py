@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v10 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -21,7 +21,7 @@ def qapp():
 
 def test_phase_panel_replaces_reserved_panel_and_uses_same_fft_bins(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     assert len(widget.figure.axes) == 4
     ax_frequency = widget.figure.axes[1]
@@ -43,7 +43,7 @@ def test_phase_panel_replaces_reserved_panel_and_uses_same_fft_bins(qapp):
 
 def test_low_amplitude_phase_is_hidden(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     amplitude = widget.current_spectrum_amplitude_dbv
     phase = widget.current_spectrum_phase_deg
@@ -61,7 +61,7 @@ def test_low_amplitude_phase_is_hidden(qapp):
 
 def test_magnitude_and_phase_share_frequency_axis(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     ax_frequency = widget.figure.axes[1]
     ax_phase = widget.figure.axes[3]
@@ -76,7 +76,7 @@ def test_magnitude_and_phase_share_frequency_axis(qapp):
 
 def test_manual_frequency_range_updates_phase_x_for_current_view(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     spins = (
         widget.freq_x_min,
@@ -109,7 +109,7 @@ def test_manual_frequency_range_updates_phase_x_for_current_view(qapp):
 
 def test_frequency_zoom_x_is_synchronized_to_phase(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     widget._zoom_ranges["frequency"] = ((150.0, 250.0), (-120.0, -20.0))
     widget._redraw(zero_span_error=widget.current_zero_span_error)
@@ -124,7 +124,7 @@ def test_frequency_zoom_x_is_synchronized_to_phase(qapp):
 
 def test_dcm_recompute_updates_magnitude_and_phase_together(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     before_amplitude = widget.current_spectrum_amplitude_dbv.copy()
     before_phase = widget.current_spectrum_phase_deg.copy()
 

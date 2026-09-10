@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v2 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -21,7 +21,7 @@ def qapp():
 
 def test_axis_display_controls_exist_and_are_collapsed_by_default(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert not widget.axis_display_toggle.isChecked()
     assert not widget.axis_display_panel.isVisible()
     for name in (
@@ -37,7 +37,7 @@ def test_axis_display_controls_exist_and_are_collapsed_by_default(qapp):
 
 def test_custom_y_ranges_and_grid_steps_apply_without_recomputing_data(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert widget.current_waveform is not None
     assert widget.current_zero_span is not None
 
@@ -76,11 +76,12 @@ def test_custom_y_ranges_and_grid_steps_apply_without_recomputing_data(qapp):
     assert np.allclose(before_scope, widget.current_waveform.voltage_v)
     assert np.allclose(before_zero, widget.current_zero_span.amplitude_dbm)
 
-    ax1, ax2 = widget.figure.axes
-    assert np.allclose(ax1.get_ylim(), (-10.0, 20.0))
-    assert np.allclose(ax2.get_ylim(), (-100.0, 20.0))
+    ax_dcm = widget.figure.axes[0]
+    ax_zero_span = widget.figure.axes[2]
+    assert np.allclose(ax_dcm.get_ylim(), (-10.0, 20.0))
+    assert np.allclose(ax_zero_span.get_ylim(), (-100.0, 20.0))
 
-    dcm_ticks = ax1.get_yticks()
-    zero_ticks = ax2.get_yticks()
+    dcm_ticks = ax_dcm.get_yticks()
+    zero_ticks = ax_zero_span.get_yticks()
     assert np.allclose(np.diff(dcm_ticks), 5.0)
     assert np.allclose(np.diff(zero_ticks), 10.0)

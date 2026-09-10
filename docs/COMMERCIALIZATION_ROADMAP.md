@@ -25,7 +25,7 @@
 - [x] Release workflow 从 Git tag 注入正式版本。
 - [x] GUI 标题显示真实软件版本。
 - [x] `conversion_metadata.json` / batch summary 继续读取同一 `__version__`。
-- [x] 建立 `dcm_analysis_widget.py` 作为迁移期稳定兼容入口。
+- [x] 迁移期曾建立 `dcm_analysis_widget.py` 稳定入口；正式 package 收口后已退休该 shim。
 - [x] 主界面不再直接依赖 `dcm_zero_span_widget_v10`。
 - [x] `DCM → Zero Span` 页签调整为 `DCM 综合分析`。
 - [x] AppState 增加稳定 `selected_tab_id`，同时兼容旧数字索引。
@@ -84,7 +84,7 @@ src/scope_zero_span_converter/
 
 ### 工作项
 
-- [x] 保持 `dcm_analysis_widget.py` 作为迁移期稳定兼容入口。
+- [x] 迁移期通过 `dcm_analysis_widget.py` 提供稳定入口；现已统一到 `dcm_analysis/widget.py`。
 - [x] 新建正式 `dcm_analysis/widget.py`；主界面已直接使用正式 widget。
 - [x] 抽离 FFT 幅度/相位计算为纯算法模块 `dcm_analysis/spectrum.py`。
 - [x] 抽离坐标自动/手动/回填公共逻辑到 `dcm_analysis/axis.py`。
@@ -93,15 +93,15 @@ src/scope_zero_span_converter/
 - [x] 抽离综合分析导出逻辑到 `dcm_analysis/exporter.py`，GUI 只负责选择目录和传入当前状态。
 - [x] 抽离四图绘制层到 `dcm_analysis/plots.py`；正式 widget 已接管 2×2 布局，左列共享绝对时间，右列共享同一 FFT 频率轴。
 - [x] DCM Generator / Extractor 建立正式 `dcm_generator/`、`dcm_extractor/` 入口；主界面不再直接引用 `*_v3` / `*_v7`。
-- [x] 正式 `dcm_generator/widget.py` 已直接实现完整 Generator QWidget，生产 MRO/import 不再依赖 `dcm_sw_generator_widget_v2` / `v3`；旧入口仅保留反向兼容别名，历史波形恢复与绝对 `time_origin_s` 语义保持。
+- [x] 正式 `dcm_generator/widget.py` 已直接实现完整 Generator QWidget，生产 MRO/import 不再依赖版本类；历史波形恢复与绝对 `time_origin_s` 语义保持。
 - [x] 正式 `dcm_extractor/widget.py` 已直接实现完整 Extractor QWidget，生产 MRO/import 不再依赖 `dcm_parameter_extractor_widget` 及 v2/v3/v5/v6/v7；绘图/状态展示与导出分别收敛到正式 `presentation.py` / `io.py`，全局联合精修继续由后台 Worker 执行。
 - [x] 正式 `frequency_axis.py` 接管频域自动适配、手动当前帧、范围/步长回填和频域 Zoom 清理；生产运行逻辑不再依赖 v5/v8/v9 方法体。
 - [x] 正式 `zoom_interaction.py` 接管 Rectangle Zoom、Space 多级返回、Zoom 范围应用和显示轴变更后的 Zoom 清理；生产运行逻辑不再依赖 v6 方法体。
 - [x] 正式 `recompute.py` / `recompute_worker.py` 接管大 DCM + Zero Span 的 latest-wins 后台联动调度。
 - [x] 正式 `snapshot.py` 统一校验 DCM 参数、波形、Zero Span Profile/结果和幅相 FFT 的同源快照，Worker/debounce/pending 状态未收敛时禁止导出。
-- [x] 正式生产入口 `app.py -> main_window.MainWindow` 已直接组合无版本 `research_workspace.py` 与五个工作区，不再 import 或继承 `gui_v04` / `gui_v05`；两者仅保留兼容别名。
+- [x] 正式生产入口 `app.py -> main_window.MainWindow` 已直接组合无版本 `research_workspace.py` 与五个工作区，不再 import 或继承版本化 MainWindow。
 - [x] DCM Analysis、Generator、Extractor 历史链中仍需使用的控件构造职责均已移入正式模块，三个生产 Widget 的 MRO 与 import graph 均已退出版本类。
-- [ ] 保留旧模块一段兼容期后，正式测试逐步退出对旧版本模块的直接引用。
+- [x] 正式测试已退出对旧版本模块的直接引用；legacy GUI implementation 已从 source tree 退休，历史由 Git tags/commits 保存。
 
 ### 验收
 

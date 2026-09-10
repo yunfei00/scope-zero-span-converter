@@ -1,8 +1,4 @@
-"""Stable DCM parameter-extractor package.
-
-Application code should import ``DcmParameterExtractorWidget`` from this
-package instead of depending on a concrete legacy ``*_vN`` module.
-"""
+"""Stable DCM parameter-extractor package."""
 
 from .widget import DcmParameterExtractorWidget
 

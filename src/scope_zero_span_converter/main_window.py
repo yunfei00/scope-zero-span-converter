@@ -1,8 +1,4 @@
-"""Formal production main window.
-
-This module owns the application composition and asynchronous GUI behavior.
-Production startup does not depend on any versioned ``gui_vXX`` module.
-"""
+"""Formal production main window and asynchronous GUI orchestration."""
 
 from __future__ import annotations
 
@@ -86,8 +82,6 @@ class MainWindow(ResearchWorkspaceWindow):
         self.tabs.insertTab(2, self.dcm_extractor_tab, "DCM 参数提取")
 
         self.dcm_analysis_tab = DcmAnalysisWidget(self)
-        # 保留旧属性名，避免外部脚本/既有测试在商业化收口期间失效。
-        self.dcm_zero_span_tab = self.dcm_analysis_tab
         self.tabs.insertTab(3, self.dcm_analysis_tab, "DCM 综合分析")
         self._shutdown_poll_timer = QTimer(self)
         self._shutdown_poll_timer.setInterval(75)

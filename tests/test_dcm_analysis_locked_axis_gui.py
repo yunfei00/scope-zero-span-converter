@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v3 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +19,7 @@ def qapp():
     return app
 
 
-def _set_axis(widget: DcmZeroSpanWidget) -> None:
+def _set_axis(widget: DcmAnalysisWidget) -> None:
     for spin in (
         widget.dcm_y_min,
         widget.dcm_y_max,
@@ -51,7 +51,7 @@ def _set_axis(widget: DcmZeroSpanWidget) -> None:
 
 def test_data_above_maximum_does_not_expand_axes(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     _set_axis(widget)
 
     # 让 DCM 实际数据明显超过 +5 V。
@@ -63,20 +63,21 @@ def test_data_above_maximum_does_not_expand_axes(qapp):
     assert widget.current_waveform is not None
     assert float(np.max(widget.current_waveform.voltage_v)) > 5.0
 
-    ax1, ax2 = widget.figure.axes
-    assert np.allclose(ax1.get_ylim(), (-5.0, 5.0))
-    assert np.allclose(ax2.get_ylim(), (-80.0, -40.0))
-    assert not ax1.get_autoscaley_on()
-    assert not ax2.get_autoscaley_on()
-    assert np.all(ax1.get_yticks() >= -5.0 - 1e-12)
-    assert np.all(ax1.get_yticks() <= 5.0 + 1e-12)
-    assert np.all(ax2.get_yticks() >= -80.0 - 1e-12)
-    assert np.all(ax2.get_yticks() <= -40.0 + 1e-12)
+    ax_dcm = widget.figure.axes[0]
+    ax_zero_span = widget.figure.axes[2]
+    assert np.allclose(ax_dcm.get_ylim(), (-5.0, 5.0))
+    assert np.allclose(ax_zero_span.get_ylim(), (-80.0, -40.0))
+    assert not ax_dcm.get_autoscaley_on()
+    assert not ax_zero_span.get_autoscaley_on()
+    assert np.all(ax_dcm.get_yticks() >= -5.0 - 1e-12)
+    assert np.all(ax_dcm.get_yticks() <= 5.0 + 1e-12)
+    assert np.all(ax_zero_span.get_yticks() >= -80.0 - 1e-12)
+    assert np.all(ax_zero_span.get_yticks() <= -40.0 + 1e-12)
 
 
 def test_zero_span_values_outside_window_are_clipped_without_rescaling(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     _set_axis(widget)
 
     # 大幅增加校准偏移，让实际 Zero Span 数据越过固定显示上限。
@@ -87,7 +88,8 @@ def test_zero_span_values_outside_window_are_clipped_without_rescaling(qapp):
     assert widget.current_zero_span is not None
     assert float(np.max(widget.current_zero_span.amplitude_dbm)) > -40.0
 
-    ax1, ax2 = widget.figure.axes
-    assert np.allclose(ax1.get_ylim(), (-5.0, 5.0))
-    assert np.allclose(ax2.get_ylim(), (-80.0, -40.0))
-    assert not ax2.get_autoscaley_on()
+    ax_dcm = widget.figure.axes[0]
+    ax_zero_span = widget.figure.axes[2]
+    assert np.allclose(ax_dcm.get_ylim(), (-5.0, 5.0))
+    assert np.allclose(ax_zero_span.get_ylim(), (-80.0, -40.0))
+    assert not ax_zero_span.get_autoscaley_on()

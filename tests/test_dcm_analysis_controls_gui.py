@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters
-from scope_zero_span_converter.dcm_zero_span_widget import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +22,7 @@ def qapp():
 
 def test_zero_span_parameters_are_collapsed_by_default(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert not widget.zero_span_toggle.isChecked()
     assert not widget.zero_span_panel.isVisible()
     assert len(widget._parameter_controls) == 20
@@ -31,7 +31,7 @@ def test_zero_span_parameters_are_collapsed_by_default(qapp):
 
 def test_dcm_slider_value_change_updates_both_waveforms(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert widget.current_waveform is not None
     assert widget.current_zero_span is not None
 
@@ -50,7 +50,7 @@ def test_dcm_slider_value_change_updates_both_waveforms(qapp):
 
 def test_conversion_parameter_change_only_recomputes_zero_span(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     before_scope = widget.current_waveform.voltage_v.copy()
     before_zero = widget.current_zero_span.amplitude_dbm.copy()
 
@@ -64,7 +64,7 @@ def test_conversion_parameter_change_only_recomputes_zero_span(qapp):
 
 def test_invalid_zero_span_profile_does_not_freeze_dcm_controls(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert widget.current_waveform is not None
 
     # 1000 MHz 在默认 2 GSa/s / 350 MHz 模拟带宽下不能进行当前 Zero Span 转换。

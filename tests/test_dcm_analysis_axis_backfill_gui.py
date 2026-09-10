@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v9 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +19,7 @@ def qapp():
     return app
 
 
-def _assert_frequency_controls_match_plot(widget: DcmZeroSpanWidget) -> None:
+def _assert_frequency_controls_match_plot(widget: DcmAnalysisWidget) -> None:
     ax_freq = widget.figure.axes[1]
     x_min, x_max = ax_freq.get_xlim()
     y_min, y_max = ax_freq.get_ylim()
@@ -40,13 +40,13 @@ def _assert_frequency_controls_match_plot(widget: DcmZeroSpanWidget) -> None:
 
 def test_frequency_auto_axis_is_backfilled_on_startup(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     _assert_frequency_controls_match_plot(widget)
 
 
 def test_frequency_auto_axis_is_backfilled_after_fft_update(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     sample_rate = widget._parameter_controls["sample_rate_hz"]
     sample_rate.setValue(1.0)
@@ -63,7 +63,7 @@ def test_frequency_auto_axis_is_backfilled_after_fft_update(qapp):
 
 def test_manual_input_current_frame_still_works_and_next_update_refills(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     spins = (
         widget.freq_x_min,

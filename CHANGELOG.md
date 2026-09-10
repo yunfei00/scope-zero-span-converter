@@ -22,7 +22,9 @@
 - 抽离 `dcm_analysis/spectrum.py`，幅度与相位统一来自同一次复数 FFT。
 - 抽离 `dcm_analysis/axis.py`，统一固定范围、刻度、自动范围和步长策略。
 - 抽离 `dcm_analysis/zoom.py`，统一时域/频域框选放大和 Space 多级撤销状态。
-- 保留旧 `vN` 模块作为迁移期兼容层，主程序通过稳定入口访问 DCM 综合分析。
+- 迁移期曾保留旧 `vN` 模块作为兼容层，主程序通过稳定入口访问 DCM 综合分析。
+- 正式页面完成收口后，退休版本化 GUI、过渡 shim、重复 MainWindow 与旧 manual tuner；生产与正式测试只使用无版本 package API。
+- 增加架构防回退测试，禁止生产代码重新 import 或新增版本化 GUI 模块。
 
 ### 数据可靠性
 
@@ -64,11 +66,7 @@
 
 ### 后续重点
 
-- 完成四图绘制层与正式 DCM widget 收口，逐步退出 `v4~v10` 继承链。
-- 统一核心 DCM extractor 的时间轴质量策略，删除旧的重复 5% 容差规则。
-- 明确 FSW 名义 Sweep Time 与最后采样点相差一个 dt 时的边界策略，并用实机 metadata 验证。
-- Marker / Cursor、FFT Peak Table、Workspace 状态。
-- 大数据 Worker、Progress / Cancel。
+- Windows 预发布构建与基本 smoke validation。
 - Installer、VersionInfo、签名、许可与客户手册。
 
 ## v0.7.0

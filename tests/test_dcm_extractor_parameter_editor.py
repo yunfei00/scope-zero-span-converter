@@ -8,9 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_parameter_extractor_widget_v5 import (
-    DcmParameterExtractorWidget,
-)
+from scope_zero_span_converter.dcm_extractor.widget import DcmParameterExtractorWidget
 from scope_zero_span_converter.dcm_sw_generator import DcmSwParameters, generate_dcm_sw_waveform
 
 

@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scope_zero_span_converter.dcm_analysis.peaks import find_spectrum_peaks
-from scope_zero_span_converter.dcm_analysis_widget import DcmAnalysisWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")

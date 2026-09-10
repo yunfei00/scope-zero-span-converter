@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v6 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -32,14 +32,14 @@ def _inner_bounds(bounds: tuple[float, float], low_ratio=0.25, high_ratio=0.75):
 
 def test_only_time_and_frequency_panels_have_rectangle_zoom(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     assert set(widget._zoom_selectors) == {"time", "frequency"}
     assert len(widget.figure.axes) == 4
 
 
 def test_time_rectangle_zoom_keeps_zero_span_time_aligned_and_space_restores(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     ax_time, ax_freq, ax_zero, _ = widget.figure.axes
     base_time_xlim = tuple(ax_time.get_xlim())
@@ -72,7 +72,7 @@ def test_time_rectangle_zoom_keeps_zero_span_time_aligned_and_space_restores(qap
 
 def test_frequency_rectangle_zoom_is_independent_and_space_restores(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     ax_time, ax_freq, ax_zero, _ = widget.figure.axes
     base_time_xlim = tuple(ax_time.get_xlim())
@@ -117,7 +117,7 @@ def test_frequency_rectangle_zoom_is_independent_and_space_restores(qapp):
 
 def test_zoom_window_survives_dcm_recompute_until_space(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
 
     ax_time = widget.figure.axes[0]
     zoom_x = _inner_bounds(tuple(ax_time.get_xlim()), 0.35, 0.65)

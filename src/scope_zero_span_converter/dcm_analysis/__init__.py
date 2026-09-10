@@ -1,9 +1,4 @@
-"""Commercial DCM analysis modules.
-
-New DCM analysis implementation code belongs in this package. The legacy
-versioned widget modules remain temporarily as compatibility shims while the
-GUI is migrated in stages.
-"""
+"""Commercial DCM analysis algorithms, presentation helpers and widget APIs."""
 
 from .axis import (
     apply_fixed_xy_axis,

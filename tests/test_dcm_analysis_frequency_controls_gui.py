@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_zero_span_widget_v5 import DcmZeroSpanWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +19,7 @@ def qapp():
     return app
 
 
-def _set_frequency_axis(widget: DcmZeroSpanWidget) -> None:
+def _set_frequency_axis(widget: DcmAnalysisWidget) -> None:
     spins = (
         widget.freq_x_min,
         widget.freq_x_max,
@@ -45,7 +45,7 @@ def _set_frequency_axis(widget: DcmZeroSpanWidget) -> None:
 
 def test_frequency_axis_controls_exist(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     for name in (
         "freq_x_min",
         "freq_x_max",
@@ -60,7 +60,7 @@ def test_frequency_axis_controls_exist(qapp):
 
 def test_frequency_x_y_range_and_steps_are_strictly_fixed(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     _set_frequency_axis(widget)
 
     assert len(widget.figure.axes) == 4
@@ -78,9 +78,9 @@ def test_frequency_x_y_range_and_steps_are_strictly_fixed(qapp):
     )
 
 
-def test_frequency_axes_do_not_expand_after_dcm_recompute(qapp):
+def test_frequency_axes_return_to_auto_fit_after_dcm_recompute(qapp):
     del qapp
-    widget = DcmZeroSpanWidget()
+    widget = DcmAnalysisWidget()
     _set_frequency_axis(widget)
 
     before_frequency = widget.current_spectrum_amplitude_dbv.copy()
@@ -94,7 +94,13 @@ def test_frequency_axes_do_not_expand_after_dcm_recompute(qapp):
     assert not np.allclose(before_frequency, widget.current_spectrum_amplitude_dbv)
 
     ax_freq = widget.figure.axes[1]
-    assert np.allclose(ax_freq.get_xlim(), (0.0, 500.0))
-    assert np.allclose(ax_freq.get_ylim(), (-160.0, 20.0))
+    x_min, x_max = ax_freq.get_xlim()
+    y_min, y_max = ax_freq.get_ylim()
+    assert x_min <= 1e-9
+    assert 999.0 <= x_max <= 1001.0
+    assert widget.freq_x_min.value() == pytest.approx(x_min)
+    assert widget.freq_x_max.value() == pytest.approx(x_max)
+    assert widget.freq_y_min.value() == pytest.approx(y_min)
+    assert widget.freq_y_max.value() == pytest.approx(y_max)
     assert not ax_freq.get_autoscalex_on()
-    assert not ax_freq.get_autoscaley_on()
+    assert ax_freq.get_autoscaley_on()

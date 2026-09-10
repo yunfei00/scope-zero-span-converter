@@ -231,20 +231,20 @@ Windows 客户版使用 GitHub Release 中的 `ScopeZeroSpanConverter-vX.Y.Z-Win
 `v0.8.x` 的重点不是继续堆图，而是产品化收口。当前已经完成/正在推进：
 
 - 版本与发布一致性
-- 稳定 GUI 入口与页签 ID
-- `dcm_analysis` 的 spectrum / axis / zoom / peaks 正式模块
+- `app.py` → `main_window.py` 的唯一正式 GUI 入口与稳定页签 ID
+- `dcm_analysis/`、`dcm_generator/`、`dcm_extractor/` 三个正式页面包
+- 快速迭代时期的版本化 GUI 模块已经退出源码树，历史实现由 Git 保留
 - 输入数据质量检查与可追溯 metadata
 - FFT / Phase 物理定义与动态相位门限
 - FSW Sweep 越界保护
+- 大数据后台计算、latest-wins、全局精修取消与安全退出
 - Rotating Log / 一键诊断包
 
 后续继续：
 
-- 完成四图绘制层与旧 `vN` 继承链收口
-- Marker / Cursor
-- Workspace 状态
-- 后台计算 / Progress / Cancel
+- Windows 预发布构建与基础 smoke validation
 - Installer / VersionInfo / License / 客户手册
+- 商业许可、签名与交付清单审查
 
 详细计划见 `docs/COMMERCIALIZATION_ROADMAP.md`。
 

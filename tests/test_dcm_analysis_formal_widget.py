@@ -8,10 +8,6 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
-from scope_zero_span_converter.dcm_analysis_widget import (
-    DcmAnalysisWidget as CompatibilityDcmAnalysisWidget,
-)
-from scope_zero_span_converter.gui_v05 import DcmAnalysisWidget as MainWindowDcmAnalysisWidget
 
 
 @pytest.fixture(scope="module")
@@ -22,9 +18,7 @@ def qapp():
     return app
 
 
-def test_main_window_imports_formal_dcm_analysis_widget():
-    assert MainWindowDcmAnalysisWidget is DcmAnalysisWidget
-    assert CompatibilityDcmAnalysisWidget is DcmAnalysisWidget
+def test_formal_widget_uses_versionless_module():
     assert DcmAnalysisWidget.__module__ == "scope_zero_span_converter.dcm_analysis.widget"
 
 

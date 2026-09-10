@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_analysis_widget import DcmAnalysisWidget
+from scope_zero_span_converter.dcm_analysis.widget import DcmAnalysisWidget
 from scope_zero_span_converter.dcm_zero_span_link import ZeroSpanProfile
 
 

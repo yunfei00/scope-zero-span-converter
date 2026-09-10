@@ -69,7 +69,6 @@ def test_formal_main_window_composes_five_stable_workspaces():
     assert type(window.dcm_generator_tab) is DcmSwGeneratorWidget
     assert isinstance(window.dcm_extractor_tab, DcmParameterExtractorWidget)
     assert type(window.dcm_analysis_tab) is DcmAnalysisWidget
-    assert window.dcm_zero_span_tab is window.dcm_analysis_tab
 
     generated = window.dcm_generator_tab.current_waveform
     assert generated is not None
