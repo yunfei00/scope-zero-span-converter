@@ -8,12 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from scope_zero_span_converter.dcm_parameter_extractor_widget_v6 import (
-    DcmParameterExtractorWidget as BaseExtractorWidget,
-)
-from scope_zero_span_converter.dcm_parameter_extractor_widget_v7 import (
-    DcmParameterExtractorWidget,
-)
+from scope_zero_span_converter.dcm_extractor.widget import DcmParameterExtractorWidget
 
 
 @pytest.fixture(scope="module")
@@ -36,21 +31,41 @@ def test_extractor_memory_input_rejects_nonuniform_time_axis(qapp):
         widget.set_waveform(t, v)
 
 
+def test_extractor_memory_input_rejects_nonfinite_voltage(qapp):
+    del qapp
+    widget = DcmParameterExtractorWidget()
+    t = np.arange(128, dtype=float) / 1e9
+    v = np.zeros_like(t)
+    v[17] = np.nan
+
+    with pytest.raises(ValueError, match="NaN 或 Inf"):
+        widget.set_waveform(t, v)
+
+
+def test_extractor_memory_input_rejects_shape_mismatch(qapp):
+    del qapp
+    widget = DcmParameterExtractorWidget()
+    t = np.arange(128, dtype=float) / 1e9
+    v = np.zeros(127, dtype=float)
+
+    with pytest.raises(ValueError, match="一维且点数一致"):
+        widget.set_waveform(t, v)
+
+
 def test_extractor_memory_input_tracks_quality_before_analysis(qapp, monkeypatch):
     del qapp
     widget = DcmParameterExtractorWidget()
 
-    # This test only verifies the v7 quality gate. Do not continue into the
+    # This test only verifies the formal input gate. Do not continue into the
     # actual DCM-event extractor with a constant signal: the real GUI correctly
     # reports that failure through a modal QMessageBox, which would block a
     # headless CI runner forever waiting for a user click.
     downstream_calls: list[tuple[int, str]] = []
 
-    def fake_base_set_waveform(self, time_s, voltage_v, *, source_name="内存波形"):
-        del self, voltage_v
-        downstream_calls.append((len(time_s), source_name))
+    def fake_run_extraction(self):
+        downstream_calls.append((len(self.time_s), self.file_label.text()))
 
-    monkeypatch.setattr(BaseExtractorWidget, "set_waveform", fake_base_set_waveform)
+    monkeypatch.setattr(DcmParameterExtractorWidget, "run_extraction", fake_run_extraction)
 
     t = np.arange(128, dtype=float) / 1e9
     v = np.zeros_like(t)
