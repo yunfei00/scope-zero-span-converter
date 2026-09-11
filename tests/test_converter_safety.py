@@ -132,21 +132,22 @@ def test_conversion_metadata_contains_time_axis_quality(tmp_path):
     assert quality["sample_rate_hz"] == pytest.approx(fs, rel=1e-9)
 
 
-def test_convert_rejects_metadata_sweep_beyond_scope_duration(tmp_path):
+@pytest.mark.parametrize("metadata_sweep_s", [5e-6, 12e-6])
+def test_convert_rejects_config_sweep_beyond_scope_duration(tmp_path, metadata_sweep_s):
     fs = 1e9
     t = np.arange(10_000, dtype=float) / fs
     waveform_path = tmp_path / "waveform.csv"
     metadata_path = tmp_path / "metadata.json"
     _write_waveform(waveform_path, t)
 
-    # Scope record ends at 9.999 us; request 12 us to prove no tail extrapolation occurs.
+    # Metadata can request an in-range or out-of-range sweep; only config is effective.
     metadata_path.write_text(
         json.dumps(
             {
                 "spectra": {
                     "ext": {
                         "points": 1001,
-                        "metadata": {"sweep_time_s": 12e-6},
+                        "metadata": {"sweep_time_s": metadata_sweep_s},
                     }
                 }
             }
@@ -156,6 +157,11 @@ def test_convert_rejects_metadata_sweep_beyond_scope_duration(tmp_path):
 
     config = _base_config(tmp_path)
     config.conversion.resample_to_fsw_axis = True
+    config.conversion.fsw_sweep_time_s = 12e-6
+    config.conversion.fsw_trace_points = 1001
+    # Scope support ends at 9.999 us, not N/Fs. The config request must fail.
+    assert t[-1] - t[0] == pytest.approx(9.999e-6)
+    assert config.conversion.fsw_sweep_time_s > t[-1] - t[0]
 
     with pytest.raises(ValueError, match="FSW Sweep Time 超出示波器实际记录时长"):
         convert(waveform_path, metadata_path, config)

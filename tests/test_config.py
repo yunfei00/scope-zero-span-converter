@@ -64,5 +64,8 @@ def test_v01_config_remains_compatible(tmp_path):
     loaded = load_config(path)
 
     assert loaded.input.fsw_reference_file == ""
+    assert loaded.conversion.use_metadata_parameters is False
+    assert loaded.conversion.fsw_sweep_time_s is None
+    assert loaded.conversion.fsw_trace_points is None
     assert loaded.comparison.enabled is True
     assert loaded.output.save_conversion_metadata is True
