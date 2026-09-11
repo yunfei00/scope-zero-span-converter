@@ -35,7 +35,8 @@ main 保持 `0.8.0.dev0`。只有 tag 构建将 `_version.py` 注入为 tag 的�
 - 产品名称、作者标识、AppId：`src/scope_zero_span_converter/product.py`。
 - 版本/Installer defines：`packaging/windows_metadata.py`，不要手改生成文件。
 - 原创图标：`assets/generate_icon.py` 生成 `app.png` 和多尺寸 `app.ico`。
-- Windows 构建 Python 3.11.15、Inno Setup 6.4.3；直接/间接 Python 依赖均在
+- Windows 构建 Python 3.11.15（由固定版本 uv 0.11.2 安装 managed runtime，
+  不依赖 setup-python 缺少的 Windows 3.11 安全更新二进制）、Inno Setup 6.4.3；直接/间接 Python 依赖均在
   `packaging/requirements-windows.txt` 固定版本并校验 hash。
 - 更新依赖时修改 `.in` 后按文件头的 uv 命令重新生成 lock，重新跑完整 RC。
 - Wheel license 文件自动复制，额外许可文本来自版本化 URL 并验证 SHA256。

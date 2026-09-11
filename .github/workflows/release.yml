@@ -24,12 +24,15 @@ jobs:
       SCOPE_ZERO_SPAN_DATA_DIR: ${{ github.workspace }}/build/source-test-user-data
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Install pinned Python bootstrap
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          python-version: '3.11.15'
-          architecture: x64
-          cache: pip
-          cache-dependency-path: packaging/requirements-windows.txt
+          version: '0.11.2'
+      - name: Set up pinned Windows Python
+        run: |
+          uv venv .venv-release --python 3.11.15 --managed-python
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          (Resolve-Path .venv-release/Scripts).Path >> $env:GITHUB_PATH
       - name: Generate version and product metadata
         env:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
@@ -39,9 +42,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install pinned build dependencies
         run: |
-          python -m pip install --require-hashes -r packaging/requirements-windows.txt
+          uv pip install --python .venv-release/Scripts/python.exe --require-hashes -r packaging/requirements-windows.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip install --no-deps --no-build-isolation -e .
+          uv pip install --python .venv-release/Scripts/python.exe --no-deps --no-build-isolation -e .
       - name: Compile
         run: python -m compileall -q src tests packaging
       - name: Source pytest
