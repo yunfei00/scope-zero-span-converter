@@ -24,6 +24,11 @@ from PySide6.QtWidgets import QApplication
 from .app_state import AppState, load_state, save_state
 from .logging_utils import get_logger
 from .main_window import MainWindow
+from .research_workspace_state import (
+    apply_research_workspace,
+    collect_research_workspace,
+    install_research_workspace_state,
+)
 from .workspace import apply_dcm_analysis_workspace, collect_dcm_analysis_workspace
 
 
@@ -41,9 +46,10 @@ def collect_app_state(window: MainWindow) -> AppState:
         selected_tab_id=window.tab_id_for_index(current_index),
         selected_template=window.template_combo.currentText(),
         workspace={
+            "waveform_research": collect_research_workspace(window),
             "dcm_analysis": collect_dcm_analysis_workspace(
                 window.dcm_analysis_tab
-            )
+            ),
         },
     )
 
@@ -91,11 +97,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_smoke_test(args.smoke_report or user_data_directory() / "smoke-report.json")
     app = QApplication(sys.argv)
     window = MainWindow()
+    install_research_workspace_state(window)
 
     state = load_state()
     if state is not None:
         try:
             window.apply_config(state.config)
+
+            research_workspace = state.workspace.get("waveform_research")
+            if isinstance(research_workspace, dict):
+                apply_research_workspace(window, research_workspace)
 
             dcm_workspace = state.workspace.get("dcm_analysis")
             if isinstance(dcm_workspace, dict):
