@@ -4,6 +4,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QFormLayout,
     QGroupBox,
     QScrollArea,
     QSizePolicy,
@@ -86,11 +87,32 @@ class CollapsibleSection(QWidget):
         self._set_expanded(bool(expanded))
 
 
+def _hide_fixed_zero_span_row(window: Any) -> None:
+    """Hide the read-only Span=0 row while keeping the internal value intact."""
+
+    span_widget = getattr(window, "span_mhz", None)
+    if span_widget is None:
+        return
+
+    span_widget.hide()
+    parent = span_widget.parentWidget()
+    layout = parent.layout() if parent is not None else None
+    if isinstance(layout, QFormLayout):
+        label = layout.labelForField(span_widget)
+        if label is not None:
+            label.hide()
+
+
 def install_research_workspace_state(window: Any) -> None:
     """Make waveform-research groups collapsible without changing core logic."""
 
     if getattr(window, "_research_sections", None):
         return
+
+    # Zero Span is an invariant of this tool, so the disabled Span=0 field does
+    # not add useful information in the research sidebar.  Hide only its UI row;
+    # collect_config/apply_config still keep span_hz fixed at 0 for compatibility.
+    _hide_fixed_zero_span_row(window)
 
     splitter = window.research_tab.findChild(QSplitter)
     if splitter is None or splitter.count() < 2:
