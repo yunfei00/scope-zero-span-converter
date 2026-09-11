@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
+import argparse
+from pathlib import Path
 
 
 def _is_wsl() -> bool:
@@ -84,7 +86,16 @@ def _show_main_window(app: QApplication, window: MainWindow) -> None:
     LOGGER.info("主窗口使用原生 showMaximized() 启动")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Scope Zero Span Converter")
+    parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument("--smoke-report", type=Path)
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    if args.smoke_test:
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from .runtime_paths import user_data_directory
+        from .smoke import run_smoke_test
+        return run_smoke_test(args.smoke_report or user_data_directory() / "smoke-report.json")
     app = QApplication(sys.argv)
     window = MainWindow()
 

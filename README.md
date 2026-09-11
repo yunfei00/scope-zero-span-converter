@@ -3,7 +3,7 @@
 示波器时域波形研究、DCM SW 建模/参数识别、幅相频域分析与 Zero Span 联动转换工具。
 
 > 当前稳定客户版本：**v0.7.0**  
-> 当前 `main` 开发版本：**v0.8.0.dev0**（商业化整改阶段）
+> 当前 `main` 开发版本：**v0.8.0.dev0**（v1.0 发布候选验证中，尚未发布 v1.0.0）
 
 ## 产品定位
 
@@ -48,7 +48,7 @@ Scope waveform / DCM parameters
    - 基础电平与时间参数提取
    - 开关沿尖峰/寄生振铃提取
    - DCM 断续谐振提取
-   - 全局联合精修
+   - 后台全局联合精修，可安全取消并保留前三阶段结果和当前参数
    - RMSE / R² / 残差 / 置信度
    - 导出参数 JSON 与当前重建 CSV
    - 保留原始 CSV 的绝对时间轴起点
@@ -182,6 +182,11 @@ scope-zero-span-converter.log
 最多保留 5 个历史日志
 ```
 
+Windows 用户数据位于 `%LOCALAPPDATA%\ScopeZeroSpanConverter`：`logs/` 保存日志，
+`templates/` 保存用户模板，`app_state.json` 保存最近状态/Workspace。旧版用户目录中的
+状态和模板首次迁移时会复制保留，不覆盖已存在的新文件。程序关闭时会等待必要的后台
+保存完成，避免损坏输出。
+
 GUI 提供“导出诊断包”，生成 ZIP 供客户支持定位问题。默认包含：
 
 - 软件版本
@@ -192,7 +197,24 @@ GUI 提供“导出诊断包”，生成 ZIP 供客户支持定位问题。默�
 
 ## 安装与运行
 
-开发环境：
+Windows 客户端支持 **Windows 10 1809+ / Windows 11 x64**，建议 8 GB 内存。
+无需安装 Python；推荐使用仍受支持的 Windows 版本。
+
+从 [项目 Releases](https://github.com/yunfei00/scope-zero-span-converter/releases) 获取对应版本：
+
+- 推荐：运行 `ScopeZeroSpanConverter-Setup-<version>.exe`，默认安装到 Program Files，
+  创建开始菜单快捷方式，可选桌面快捷方式。安装需要管理员授权，日常运行不需要。
+- Portable：完整解压 `ScopeZeroSpanConverter-v<version>-Windows-x64.zip` 后运行
+  `ScopeZeroSpanConverter.exe`；保留 `_internal` 目录。
+
+新安装器用于即将发布的版本；历史 v0.7.0 Release 可能只有 portable ZIP。
+当前没有配置数字签名证书的构建显示未知发布者，Windows 可能触发 SmartScreen。
+请使用可信发布页面并核对 `SHA256SUMS.txt`。不要关闭系统安全防护。
+
+升级运行新版安装器即可；卸载保留用户模板、日志、状态及生成数据。
+详见 [Windows 安装说明](docs/WINDOWS_INSTALLATION.md)。
+
+源码开发环境：
 
 ```bash
 pip install -e .
@@ -207,7 +229,21 @@ scope-zero-span-converter batch --config configs/default.json
 scope-zero-span-converter init-config converter-config.json
 ```
 
-Windows 客户版使用 GitHub Release 中的 `ScopeZeroSpanConverter-vX.Y.Z-Windows-x64.zip`，解压后运行 `ScopeZeroSpanConverter.exe`。
+## 输出与快速上手
+
+先在“波形研究”选择 `time_s,voltage_v` CSV 与 metadata，确认采样质量摘要，再设置
+Center/RBW、选择输出目录并转换。也可先在“DCM SW 生成器”生成一个事件，发送到
+波形研究；在“DCM 参数提取”载入波形完成前三阶段分析后，再按需精修/人工调整。
+
+- 单次/批量 Zero Span：功率-时间 CSV、PNG、转换 metadata、可选 FSW 对比 CSV；
+  批量另保存 summary CSV/JSON。
+- Generator：标准波形 CSV 与可往返的参数 JSON。
+- Extractor：参数 JSON、包含源波形/重建/残差/分量的 reconstruction CSV。
+- DCM 综合分析：当前四图 PNG、DCM/Zero Span/Spectrum CSV 与 analysis metadata；
+  快照仍在更新时暂不允许导出。
+
+打包程序的相对输出目录写入用户数据目录下的 `output/` 或 `batch_output/`；
+可以选择任意可写的绝对目录。不要把客户文件放进 Program Files 安装目录。
 
 ## 版本规则
 
@@ -223,30 +259,15 @@ Windows 客户版使用 GitHub Release 中的 `ScopeZeroSpanConverter-vX.Y.Z-Win
 - 幅度频谱是当前记录的 Hann-window 单边 FFT（peak dBV/bin 语义），不能直接等同于频谱仪 trace。
 - 相位频谱是当前 FFT 记录起点参考下的 wrapped phase（-180°~+180°），不是网络分析仪意义上的绝对器件相位；低能量频点相位会被隐藏。
 - FFT / Zero Span 目前要求时间轴满足统一采样质量门禁；不支持直接对任意非均匀采样数据计算。
-- FSW Sweep Time 与示波器最后采样点之间的名义边界（例如相差一个采样间隔）仍需要结合实机 metadata 固化最终容差规则。
+- FSW Sweep Time 不得超出实际记录范围；仅允许浮点舍入误差，不会复制末值扩展一整个采样间隔。
 - DSO-X 3034A 的 350 MHz 模拟带宽是物理限制，不能通过提高数字采样率恢复超出模拟前端带宽的 RF 内容。
 
-## 商业化整改
+## 开发与发布
 
-`v0.8.x` 的重点不是继续堆图，而是产品化收口。当前已经完成/正在推进：
-
-- 版本与发布一致性
-- `app.py` → `main_window.py` 的唯一正式 GUI 入口与稳定页签 ID
-- `dcm_analysis/`、`dcm_generator/`、`dcm_extractor/` 三个正式页面包
-- 快速迭代时期的版本化 GUI 模块已经退出源码树，历史实现由 Git 保留
-- 输入数据质量检查与可追溯 metadata
-- FFT / Phase 物理定义与动态相位门限
-- FSW Sweep 越界保护
-- 大数据后台计算、latest-wins、全局精修取消与安全退出
-- Rotating Log / 一键诊断包
-
-后续继续：
-
-- Windows 预发布构建与基础 smoke validation
-- Installer / VersionInfo / License / 客户手册
-- 商业许可、签名与交付清单审查
-
-详细计划见 `docs/COMMERCIALIZATION_ROADMAP.md`。
+正式 GUI 入口为 `app.py → main_window.py`，页面位于 `dcm_analysis/`、
+`dcm_generator/`、`dcm_extractor/`；历史版本化 GUI 已从源码树退休。
+开发者发布操作见 [Release process](docs/RELEASE_PROCESS.md)，进度见
+[Roadmap](docs/COMMERCIALIZATION_ROADMAP.md)。人工确认前不创建 v1.0.0 tag。
 
 ## 研究文档
 
@@ -254,4 +275,6 @@ Windows 客户版使用 GitHub Release 中的 `ScopeZeroSpanConverter-vX.Y.Z-Win
 
 ## License / 商业分发
 
-正式商业版本发布前，需要单独完成第三方依赖许可、PySide6/Qt 分发合规、EULA、版权信息与 Windows 签名策略。当前仓库不应被视为已经完成这些商业许可审查。
+第三方信息见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。当前产品自身未另行授予
+MIT/Apache 等开源许可；EULA、版权主体和组织合规复核由产品所有者在对外分发前确认，
+见 [商业分发确认清单](docs/RELEASE_COMPLIANCE_CHECKLIST.md)。

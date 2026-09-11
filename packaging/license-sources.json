@@ -1,0 +1,17 @@
+[
+  {
+    "filename": "Qt-LGPL-3.0-only.txt",
+    "url": "https://raw.githubusercontent.com/qt/qtbase/v6.9.3/LICENSES/LGPL-3.0-only.txt",
+    "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+  },
+  {
+    "filename": "Qt-GPL-3.0-only.txt",
+    "url": "https://raw.githubusercontent.com/qt/qtbase/v6.9.3/LICENSES/GPL-3.0-only.txt",
+    "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+  },
+  {
+    "filename": "Inno-Setup-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_4_3/license.txt",
+    "sha256": "a7f97b166be34fc8bf04e79617b9f56b2aa7903a2808f94155e449c80bdfdcc2"
+  }
+]

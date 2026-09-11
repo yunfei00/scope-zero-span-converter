@@ -9,3 +9,5 @@ build/
 *.egg-info/
 output/
 *.spec
+!packaging/*.spec
+.venv-release/

@@ -1,5 +1,19 @@
 # 版本变更记录
 
+## Unreleased / v1.0 release candidate
+
+- 正式无版本 GUI 与五个工作区已经收口，legacy GUI 从源码树退休。
+- 保持 Generator/Extractor 同源参数、绝对时间、分阶段识别、人工校正及 JSON/CSV 数据兼容。
+- 四视图统一快照与 FFT bins；质量门禁、Workspace、Marker/Peak、显示降采样保留完整数据。
+- 后台 Worker latest-wins、全局精修 cooperative cancel、安全退出覆盖运行时任务。
+- 增加正式 PyInstaller spec、原创多尺寸 icon、统一 Windows VersionInfo 与产品 metadata。
+- 增加 Inno Setup 安装器、固定升级 AppId、快捷方式、保留用户数据的卸载及 portable ZIP。
+- Windows RC workflow 可手动触发，执行 packaged/installed EXE smoke、静默安装/卸载；
+  正式 Release 仅在 tag push 且全部验证通过后创建。
+- Windows 用户数据迁入 LocalAppData，保留旧状态/模板/日志迁移；打包资源与可写输出分离。
+- 增加可选 SHA256 签名路径、依赖锁定/许可证收集、用户安装说明与 Release process。
+- 当前 main 保持 `0.8.0.dev0`；此记录不表示 v1.0.0 已发布或商业授权已经确认。
+
 ## v0.8.0（开发中）
 
 ### 商业化整改

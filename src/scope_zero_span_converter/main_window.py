@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QThreadPool, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -17,6 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
+from .product import PRODUCT_NAME
+from .runtime_paths import resource_path, writable_output_path
 from .batch import BatchItemResult, BatchRunResult
 from .batch_worker import BatchWorkerTask
 from .conversion_worker import FullConversionWorkerResult, FullConversionWorkerTask
@@ -62,9 +65,10 @@ class MainWindow(ResearchWorkspaceWindow):
         self._shutdown_close_scheduled = False
 
         super().__init__()
-        self.setWindowTitle(
-            f"Scope Zero Span Converter {__version__} - DCM 综合分析工作台"
-        )
+        self.setWindowTitle(f"{PRODUCT_NAME} {__version__}")
+        self.setWindowIcon(QIcon(str(resource_path("assets/app.ico"))))
+        self.output_edit.setText(writable_output_path(self.output_edit.text()))
+        self.batch_output_edit.setText(writable_output_path(self.batch_output_edit.text()))
 
         self._worker_pool = QThreadPool.globalInstance()
         self._conversion_task: FullConversionWorkerTask | None = None
@@ -94,6 +98,12 @@ class MainWindow(ResearchWorkspaceWindow):
     # ------------------------------------------------------------------
     # Safe application shutdown
     # ------------------------------------------------------------------
+    def collect_config(self):
+        config = super().collect_config()
+        config.output.directory = writable_output_path(config.output.directory)
+        config.batch.output_directory = writable_output_path(config.batch.output_directory)
+        return config
+
     def _shutdown_task_summary(self) -> tuple[str, ...]:
         active: list[str] = []
         if self._roi_task is not None:

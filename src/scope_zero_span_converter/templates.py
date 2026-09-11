@@ -4,13 +4,10 @@ import re
 from pathlib import Path
 
 from .config import AppConfig, load_config, save_config
+from .runtime_paths import user_data_directory
 
 
 _TEMPLATE_NAME_RE = re.compile(r"^[\w\-\u4e00-\u9fff ]+$")
-
-
-def user_data_directory() -> Path:
-    return Path.home() / "ScopeZeroSpanConverter"
 
 
 def template_directory() -> Path:

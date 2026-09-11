@@ -220,28 +220,33 @@ src/scope_zero_span_converter/
 
 ### 发布
 
-- [ ] Windows Installer (`Setup-v1.0.0.exe`)。
-- [ ] Start Menu / Desktop shortcut / uninstall。
-- [ ] EXE VersionInfo：ProductName / FileVersion / ProductVersion / Company。
-- [ ] 正式应用 icon。
-- [ ] Windows code signing。
+- [x] 正式 PyInstaller spec 与锁定的 Windows 构建依赖。
+- [x] Windows Installer（Inno Setup，稳定 AppId）。
+- [x] Start Menu / 可选 Desktop shortcut / 保留用户数据的 uninstall。
+- [x] EXE VersionInfo：ProductName / FileVersion / ProductVersion / Company，版本单一来源。
+- [x] 原创多尺寸应用 icon 与 portable ZIP。
+- [x] Packaged EXE smoke / silent install / installed EXE smoke / silent uninstall 验证路径。
+- [x] workflow_dispatch RC artifacts 与仅 tag push 的 Release 安全门禁。
+- [x] 可选 Windows SHA256 code signing 路径；无证书标记 UNSIGNED BUILD。
+- [ ] 配置组织生产签名证书后验证 signed 分支（不阻塞 unsigned RC）。
+
+以上为实现状态；实际 Windows RC run 的验证结论须以 Actions 成功记录为准。
 
 ### 合规
 
-- [ ] 第三方依赖清单。
-- [ ] PySide6 / Qt 分发许可审查。
-- [ ] NOTICE。
-- [ ] EULA。
-- [ ] Copyright / Company 信息。
-- [ ] 明确源码公开/私有与商业授权策略。
+- [x] 第三方依赖清单与实际 wheel 许可文本收集。
+- [x] THIRD_PARTY_NOTICES 与 Qt/PySide6 LGPL/commercial 注意事项。
+- [x] Copyright / Publisher 集中定义，暂用作者标识 yunfei00。
+- [x] 产品所有者商业分发确认清单，未擅自选择产品开源许可。
+- [ ] 产品所有者确认 EULA、正式主体与商业授权策略。
+- [ ] 按组织要求复核 Qt 分发、对应源码/offer、替换库与第三方条款。
 
 ### 客户资料
 
-- [ ] 快速上手手册。
-- [ ] 数据格式说明。
-- [ ] 参数物理含义说明。
-- [ ] 常见错误与诊断手册。
-- [ ] Release Notes。
+- [x] README 五工作区快速上手、输入/输出格式、物理定义与数据质量说明。
+- [x] Windows 安装/升级/卸载、用户路径、SmartScreen、诊断说明。
+- [x] Release process：main green → CHANGELOG → 人工 tag → 自动验证/发布。
+- [x] CHANGELOG 增加 Unreleased / v1.0 release candidate。
 
 ---
 
