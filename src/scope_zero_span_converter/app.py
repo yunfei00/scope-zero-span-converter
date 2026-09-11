@@ -19,14 +19,6 @@ def _is_wsl() -> bool:
         return False
 
 
-# WSLg exposes both Wayland and X11/XWayland.  Qt's Wayland backend can make
-# maximize/restore behavior inconsistent with Windows-hosted WSLg windows.
-# The project's original reliable WSL launch path used QT_QPA_PLATFORM=xcb,
-# so prefer the same backend automatically.  setdefault still allows an
-# explicit user override for diagnostics or future platform changes.
-if _is_wsl():
-    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
-
 from PySide6.QtWidgets import QApplication
 
 from .app_state import AppState, load_state, save_state
@@ -57,7 +49,7 @@ def collect_app_state(window: MainWindow) -> AppState:
 
 
 def _show_main_window(app: QApplication, window: MainWindow) -> None:
-    """Show the main window using the native maximize state."""
+    """Show the main window using the platform's native maximize state."""
 
     screen = app.primaryScreen()
     if screen is not None:
@@ -80,10 +72,11 @@ def _show_main_window(app: QApplication, window: MainWindow) -> None:
             app.platformName(),
         )
 
-    # Keep a real maximized window state instead of emulating maximization with
-    # setGeometry().  This preserves the title-bar maximize/restore toggle.
+    # Do not force xcb or emulate maximization with setGeometry() under WSLg.
+    # Let Qt/WSLg choose the native platform backend so multi-monitor geometry
+    # and per-monitor scaling remain under the compositor's control.
     window.showMaximized()
-    LOGGER.info("主窗口使用原生 showMaximized() 启动")
+    LOGGER.info("主窗口使用平台原生 showMaximized() 启动")
 
 
 def main(argv: list[str] | None = None) -> int:
