@@ -27,7 +27,10 @@ class ConversionConfig:
     rbw_filter: str = "gaussian"
     vbw_enabled: bool = True
     resample_to_fsw_axis: bool = True
-    use_metadata_parameters: bool = True
+    # Deprecated compatibility field. Runtime conversion always uses GUI/AppConfig.
+    use_metadata_parameters: bool = False
+    fsw_sweep_time_s: float | None = None
+    fsw_trace_points: int | None = None
     impedance_ohm: float = 50.0
     calibration_db: float = 0.0
 
@@ -107,6 +110,12 @@ class AppConfig:
             raise ValueError("当前版本只支持 Gaussian RBW filter")
         if self.conversion.impedance_ohm <= 0:
             raise ValueError("impedance_ohm 必须 > 0")
+        sweep_time_s = self.conversion.fsw_sweep_time_s
+        if sweep_time_s is not None and sweep_time_s <= 0:
+            raise ValueError("fsw_sweep_time_s 必须 > 0 或留空")
+        trace_points = self.conversion.fsw_trace_points
+        if trace_points is not None and trace_points < 2:
+            raise ValueError("fsw_trace_points 必须 >= 2 或留空")
         if self.scope.analog_bandwidth_hz <= 0:
             raise ValueError("analog_bandwidth_hz 必须 > 0")
         if self.waveform_research.extraction_mode != "manual":
@@ -139,6 +148,9 @@ def config_from_dict(raw: dict[str, Any]) -> AppConfig:
         scope=ScopeConfig(**raw.get("scope", {})),
         output=OutputConfig(**raw.get("output", {})),
     )
+    # Old config files may contain use_metadata_parameters=true. Keep the field
+    # readable for compatibility, but never allow it to control runtime behavior.
+    config.conversion.use_metadata_parameters = False
     config.validate()
     return config
 
@@ -153,6 +165,7 @@ def load_config(path: str | Path) -> AppConfig:
 
 
 def save_config(config: AppConfig, path: str | Path) -> None:
+    config.conversion.use_metadata_parameters = False
     config.validate()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
