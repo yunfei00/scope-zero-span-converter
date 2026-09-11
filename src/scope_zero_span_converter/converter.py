@@ -65,6 +65,12 @@ def load_metadata(path: str | Path) -> dict:
 
 
 def extract_fsw_settings(meta: dict) -> dict:
+    """Backward-compatible metadata parser.
+
+    Metadata remains available for diagnostics/provenance, but conversion runtime
+    parameters are no longer resolved from it.
+    """
+
     cfg = _nested_get(
         meta,
         ("metadata", "instruments", "spectrum_analyzer", "configuration"),
@@ -128,9 +134,6 @@ def load_waveform_with_quality(
     if len(t) < 32:
         raise ValueError("有效波形点数少于 32")
 
-    # 必须在排序前分析原始时间顺序，这样才能把“导出顺序异常”和真正的
-    # 重复/缺点/非均匀采样区分开。时间倒序可告警后排序继续；会破坏 FFT
-    # 数学前提的问题则直接拒绝进入 Zero Span 主链路。
     quality = analyze_time_axis(t)
     require_fft_safe(quality)
 
@@ -166,13 +169,11 @@ def gaussian_rbw_baseband(
     idx = np.arange(len(x_pad), dtype=float) - pad
     t_pad = float(time_s[0]) + idx * dt
 
-    # 实 RF 信号乘 2 后下变频，得到目标中心频率的复包络。
     baseband = 2.0 * x_pad * np.exp(
         -1j * 2.0 * np.pi * center_frequency_hz * t_pad
     )
 
     freq = np.fft.fftfreq(len(baseband), d=dt)
-    # Gaussian 幅度响应，使完整 3 dB 功率带宽等于 RBW。
     response = np.exp(-2.0 * np.log(2.0) * (freq / rbw_hz) ** 2)
     filtered = np.fft.ifft(np.fft.fft(baseband) * response)
     return filtered[pad:-pad]
@@ -233,54 +234,25 @@ def resample_to_fsw_axis(
     )
 
 
-def _resolve_parameters(config: AppConfig, meta_settings: dict):
+def _resolve_parameters(config: AppConfig, _meta_settings: dict | None = None):
+    """Resolve runtime parameters exclusively from GUI/AppConfig."""
+
     signal = config.signal
-    sources: dict[str, str] = {}
+    center = float(signal.center_frequency_hz)
+    rbw = float(signal.rbw_hz)
+    vbw = float(signal.vbw_hz)
+    span = float(signal.span_hz)
 
-    if config.conversion.use_metadata_parameters:
-        center = meta_settings.get("center_frequency_hz")
-        rbw = meta_settings.get("rbw_hz")
-        vbw = meta_settings.get("vbw_hz")
-        span = meta_settings.get("span_hz")
-
-        if center is None:
-            center = signal.center_frequency_hz
-            sources["center_frequency_hz"] = "config"
-        else:
-            sources["center_frequency_hz"] = "metadata"
-
-        if rbw is None:
-            rbw = signal.rbw_hz
-            sources["rbw_hz"] = "config"
-        else:
-            sources["rbw_hz"] = "metadata"
-
-        if vbw is None:
-            vbw = signal.vbw_hz
-            sources["vbw_hz"] = "config"
-        else:
-            sources["vbw_hz"] = "metadata"
-
-        if span is None:
-            span = signal.span_hz
-            sources["span_hz"] = "config"
-        else:
-            sources["span_hz"] = "metadata"
-    else:
-        center = signal.center_frequency_hz
-        rbw = signal.rbw_hz
-        vbw = signal.vbw_hz
-        span = signal.span_hz
-        sources = {
-            "center_frequency_hz": "config",
-            "rbw_hz": "config",
-            "vbw_hz": "config",
-            "span_hz": "config",
-        }
-
-    if abs(float(span)) > 1e-9:
+    if abs(span) > 1e-9:
         raise ValueError(f"当前数据不是 Zero Span：span_hz={span}")
-    return float(center), float(rbw), float(vbw), sources
+
+    sources = {
+        "center_frequency_hz": "config",
+        "rbw_hz": "config",
+        "vbw_hz": "config",
+        "span_hz": "config",
+    }
+    return center, rbw, vbw, sources
 
 
 def convert(
@@ -288,12 +260,16 @@ def convert(
     metadata_path: str | Path,
     config: AppConfig,
 ) -> ConversionResult:
+    """Convert using GUI/AppConfig as the sole source of runtime parameters.
+
+    ``metadata_path`` is retained in the public signature for compatibility and
+    output provenance. Its FSW parameter values do not affect conversion.
+    """
+
+    del metadata_path
+    config.conversion.use_metadata_parameters = False
     config.validate()
-    meta = load_metadata(metadata_path)
-    meta_settings = extract_fsw_settings(meta)
-    center_hz, rbw_hz, vbw_hz, parameter_sources = _resolve_parameters(
-        config, meta_settings
-    )
+    center_hz, rbw_hz, vbw_hz, parameter_sources = _resolve_parameters(config)
 
     t, voltage_v, sample_rate_hz, waveform_quality = load_waveform_with_quality(
         waveform_path
@@ -324,13 +300,15 @@ def convert(
     effective_vbw = vbw_hz if config.conversion.vbw_enabled else None
     power_w = apply_vbw(power_w, sample_rate_hz, effective_vbw)
 
+    sweep_time_s = config.conversion.fsw_sweep_time_s
+    trace_points = config.conversion.fsw_trace_points
     if config.conversion.resample_to_fsw_axis:
         out_t, out_power_w, out_env, resampled = resample_to_fsw_axis(
             t,
             power_w,
             envelope_v_rms,
-            meta_settings.get("points"),
-            meta_settings.get("sweep_time_s"),
+            trace_points,
+            sweep_time_s,
         )
     else:
         out_t = t - t[0]
@@ -353,8 +331,8 @@ def convert(
         sample_rate_hz=sample_rate_hz,
         input_points=len(t),
         parameter_sources=parameter_sources,
-        fsw_sweep_time_s=meta_settings.get("sweep_time_s"),
-        fsw_trace_points=meta_settings.get("points"),
+        fsw_sweep_time_s=sweep_time_s,
+        fsw_trace_points=trace_points,
         resampled_to_fsw_axis=resampled,
         waveform_quality=waveform_quality,
     )
@@ -401,6 +379,8 @@ def _write_conversion_metadata(
             "detector": config.conversion.detector,
             "rbw_filter": config.conversion.rbw_filter,
             "vbw_enabled": config.conversion.vbw_enabled,
+            "fsw_sweep_time_s": config.conversion.fsw_sweep_time_s,
+            "fsw_trace_points": config.conversion.fsw_trace_points,
             "impedance_ohm": config.conversion.impedance_ohm,
             "calibration_db": config.conversion.calibration_db,
             "scope_analog_bandwidth_hz": config.scope.analog_bandwidth_hz,
