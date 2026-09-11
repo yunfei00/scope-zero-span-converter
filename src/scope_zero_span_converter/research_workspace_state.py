@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from types import MethodType
 from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QLabel,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QSplitter,
     QToolButton,
     QVBoxLayout,
@@ -66,9 +70,6 @@ class CollapsibleSection(QWidget):
         self.header.toggled.connect(self._set_expanded)
         layout.addWidget(self.header)
 
-        # Keep the existing widgets/layout untouched.  Removing the group title
-        # avoids displaying the same heading twice while preserving all signal
-        # connections and references held by ResearchWorkspaceWindow.
         if isinstance(content, QGroupBox):
             content.setTitle("")
             content.setFlat(True)
@@ -103,16 +104,89 @@ def _hide_fixed_zero_span_row(window: Any) -> None:
             label.hide()
 
 
+def _install_gui_parameter_policy(window: Any) -> None:
+    """Expose every runtime FSW parameter and make GUI/AppConfig authoritative."""
+
+    metadata_toggle = getattr(window, "use_metadata_check", None)
+    if metadata_toggle is not None:
+        metadata_toggle.setChecked(False)
+        metadata_toggle.hide()
+
+    signal_group = None
+    for group in window.findChildren(QGroupBox):
+        if group.title().startswith("Zero Span 转换参数"):
+            signal_group = group
+            break
+    if signal_group is None or not isinstance(signal_group.layout(), QFormLayout):
+        return
+
+    layout = signal_group.layout()
+
+    window.fsw_sweep_time_ms = QDoubleSpinBox(signal_group)
+    window.fsw_sweep_time_ms.setRange(0.0, 1_000_000.0)
+    window.fsw_sweep_time_ms.setDecimals(9)
+    window.fsw_sweep_time_ms.setKeyboardTracking(False)
+    window.fsw_sweep_time_ms.setSpecialValueText("未设置")
+    window.fsw_sweep_time_ms.setToolTip(
+        "完整转换重采样使用的 Sweep Time。0 表示未设置。"
+    )
+
+    window.fsw_trace_points = QSpinBox(signal_group)
+    window.fsw_trace_points.setRange(0, 10_000_000)
+    window.fsw_trace_points.setSpecialValueText("未设置")
+    window.fsw_trace_points.setToolTip(
+        "完整转换重采样使用的 Trace Points。0 表示未设置。"
+    )
+
+    layout.addRow("Sweep Time (ms)", window.fsw_sweep_time_ms)
+    layout.addRow("Trace Points", window.fsw_trace_points)
+
+    note = QLabel(
+        "所有转换与联动均以当前界面参数为准；Metadata 仅作为原始采集记录，不覆盖转换参数。",
+        signal_group,
+    )
+    note.setWordWrap(True)
+    layout.addRow(note)
+
+    original_collect_config = window.collect_config
+    original_apply_config = window.apply_config
+
+    def collect_config_from_gui(self):
+        cfg = original_collect_config()
+        cfg.conversion.use_metadata_parameters = False
+        sweep_ms = float(self.fsw_sweep_time_ms.value())
+        trace_points = int(self.fsw_trace_points.value())
+        cfg.conversion.fsw_sweep_time_s = sweep_ms / 1000.0 if sweep_ms > 0 else None
+        cfg.conversion.fsw_trace_points = trace_points if trace_points >= 2 else None
+        cfg.validate()
+        return cfg
+
+    def apply_config_to_gui(self, cfg):
+        cfg.conversion.use_metadata_parameters = False
+        original_apply_config(cfg)
+        if metadata_toggle is not None:
+            metadata_toggle.setChecked(False)
+        sweep_time_s = cfg.conversion.fsw_sweep_time_s
+        trace_points = cfg.conversion.fsw_trace_points
+        self.fsw_sweep_time_ms.setValue(
+            0.0 if sweep_time_s is None else float(sweep_time_s) * 1000.0
+        )
+        self.fsw_trace_points.setValue(
+            0 if trace_points is None else int(trace_points)
+        )
+
+    window.collect_config = MethodType(collect_config_from_gui, window)
+    window.apply_config = MethodType(apply_config_to_gui, window)
+
+
 def install_research_workspace_state(window: Any) -> None:
-    """Make waveform-research groups collapsible without changing core logic."""
+    """Install compact research UI state and GUI-authoritative parameters."""
 
     if getattr(window, "_research_sections", None):
         return
 
-    # Zero Span is an invariant of this tool, so the disabled Span=0 field does
-    # not add useful information in the research sidebar.  Hide only its UI row;
-    # collect_config/apply_config still keep span_hz fixed at 0 for compatibility.
     _hide_fixed_zero_span_row(window)
+    _install_gui_parameter_policy(window)
 
     splitter = window.research_tab.findChild(QSplitter)
     if splitter is None or splitter.count() < 2:
@@ -139,7 +213,6 @@ def install_research_workspace_state(window: Any) -> None:
         candidates.append((index, widget, title, section_id))
 
     sections: dict[str, CollapsibleSection] = {}
-    # Replace from bottom to top so layout indexes remain stable.
     for index, group, title, section_id in reversed(candidates):
         item = left_layout.takeAt(index)
         if item is None:
